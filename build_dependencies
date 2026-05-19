@@ -1,0 +1,24 @@
+#!/bin/bash
+
+cd mpg123 && \
+	autoreconf -iv && \
+	CFLAGS="-Os -s -static" LDFLAGS="-static" ./configure \
+		--host=arm-linux-gnueabihf \
+		--enable-static \
+		--disable-shared \
+		--with-audio=dummy \
+		--disable-network \
+		--disable-id3v2 \
+		--disable-icy \
+		--disable-lfs-alias \
+		--disable-feature-report \
+		--with-seektable=0 \
+		--disable-16bit --disable-32bit --disable-8bit \
+		--disable-messages \
+		--disable-feeder \
+		--disable-ntom \
+		--disable-downsample && \
+	make && \
+	arm-linux-gnueabihf-strip --strip-unneeded src/mpg123 && \
+	cd .. && mkdir -p build && \
+	cp ./mpg123/src/mpg123 ./build/mpg123

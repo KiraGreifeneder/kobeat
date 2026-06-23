@@ -86,7 +86,6 @@ fn run_server() -> Result<()> {
             }
         }
 
-        // TODO replace this and actually handle the command
         use std::io::Write;
         stream.write_all(b"{\"ok\":true}\n")?;
 

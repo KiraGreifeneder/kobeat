@@ -1,15 +1,16 @@
-use std::process::Command;
-
 use anyhow::{Context, Result};
 use axum::{
     Router,
     extract::Query,
-    response::{Html, Redirect},
+    response::Html,
     routing::{get, post},
 };
+use kobeat::{control, model::player_command::PlayerCommand};
 use maud::{DOCTYPE, Markup, html};
 use serde::Deserialize;
 use tokio::net::TcpListener;
+
+const DEFAULT_BIND_ADDR: &str = "0.0.0.0:3000";
 
 #[derive(Debug, Default, Deserialize)]
 struct IndexParams {
@@ -18,20 +19,13 @@ struct IndexParams {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    Command::new("ip")
-        .arg("addr")
-        .arg("add")
-        .arg("127.0.0.1/8")
-        .arg("dev")
-        .arg("lo")
-        .status()
-        .expect("Failed to execute command to add 127.0.0.1/8 to loopback");
-
-    let listener = TcpListener::bind("127.0.0.1:3000")
+    let bind_addr =
+        std::env::var("KOBEATUI_BIND").unwrap_or_else(|_| DEFAULT_BIND_ADDR.to_string());
+    let listener = TcpListener::bind(&bind_addr)
         .await
-        .context("failed to bind web UI to 127.0.0.1:3000")?;
+        .with_context(|| format!("failed to bind web UI to {bind_addr}"))?;
 
-    println!("kobeat web UI listening on http://127.0.0.1:3000");
+    println!("kobeat web UI listening on http://{bind_addr}");
 
     axum::serve(listener, app())
         .await
@@ -51,12 +45,24 @@ async fn index(Query(params): Query<IndexParams>) -> Html<String> {
     Html(render_page(params.message.as_deref()).into_string())
 }
 
-async fn play() -> Redirect {
-    Redirect::to("/?message=Play%20button%20pressed")
+async fn play() -> Html<String> {
+    render_command_result(PlayerCommand::Resume).await
 }
 
-async fn pause() -> Redirect {
-    Redirect::to("/?message=Pause%20button%20pressed")
+async fn pause() -> Html<String> {
+    render_command_result(PlayerCommand::Pause).await
+}
+
+async fn render_command_result(command: PlayerCommand) -> Html<String> {
+    let message = tokio::task::spawn_blocking(move || control::send_command(&command))
+        .await
+        .map(|result| match result {
+            Ok(response) => format!("OK: {}", response.trim()),
+            Err(error) => format!("Error: {error:#}"),
+        })
+        .unwrap_or_else(|error| format!("Error: failed to join command task: {error}"));
+
+    Html(render_page(Some(&message)).into_string())
 }
 
 fn render_page(message: Option<&str>) -> Markup {
@@ -130,7 +136,7 @@ fn render_page(message: Option<&str>) -> Markup {
                     }
 
                     form method="post" action="/play" {
-                        button type="submit" { "Play" }
+                        button type="submit" { "Play / Resume" }
                     }
 
                     form method="post" action="/pause" {
@@ -138,7 +144,7 @@ fn render_page(message: Option<&str>) -> Markup {
                     }
 
                     p class="note" {
-                        "These buttons are placeholder actions for now and only confirm the tap worked."
+                        "This minimal screen talks to the daemon through the shared control library."
                     }
                 }
             }
@@ -148,7 +154,7 @@ fn render_page(message: Option<&str>) -> Markup {
 
 #[cfg(test)]
 mod tests {
-    use super::render_page;
+    use super::{DEFAULT_BIND_ADDR, render_page};
 
     #[test]
     fn page_contains_controls() {
@@ -158,5 +164,11 @@ mod tests {
         assert!(page.contains("form method=\"post\" action=\"/play\""));
         assert!(page.contains("form method=\"post\" action=\"/pause\""));
         assert!(page.contains("Play button pressed"));
+        assert!(page.contains("Play / Resume"));
+    }
+
+    #[test]
+    fn default_bind_addr_is_wildcard() {
+        assert_eq!(DEFAULT_BIND_ADDR, "0.0.0.0:3000");
     }
 }

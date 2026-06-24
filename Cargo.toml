@@ -5,7 +5,7 @@ edition = "2024"
 
 [[bin]]
 name = "kobeatui"
-path = "src/ui/main.rs"
+path = "src/ui/kobeatui.rs"
 
 [dependencies]
 anyhow = "1.0.102"

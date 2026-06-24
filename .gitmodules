@@ -1,3 +1,6 @@
 [submodule "mpg123"]
 	path = mpg123
 	url = https://github.com/libsdl-org/mpg123.git
+[submodule "koxtoolchain"]
+	path = koxtoolchain
+	url = https://github.com/koreader/koxtoolchain.git

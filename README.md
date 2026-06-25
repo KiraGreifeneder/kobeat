@@ -18,3 +18,17 @@ The first build might take a while, since it pulls a podman/docker container and
 The final binaries will be located in `target/armv7-unknown-linux-gnueabihf/release/` and can be copied to the Kobo using `scp` or similar tools.
 
 kobeatd is the daemon that runs on the Kobo, while kobeatctl is a command-line tool for controlling the daemon from your computer. You can use kobeatctl to play, pause, skip tracks, and manage your music library on the Kobo.
+
+## Binaries
+
+### kobeatd
+
+The Kobeat daemon that listens for commands and plays audio in the background
+
+### kobeatctl 
+
+A simple command line tool for sending commands to kobeatd.
+
+### kobeatui
+
+A web server for providing a UI for Kobeat. It uses the same underlying control library as kobeatctl.

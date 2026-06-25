@@ -1,9 +1,10 @@
 use kobeat::{
     config::SOCKET_PATH,
-    daemon::engine::{GstPlayerEngine, PlayerEngine},
+    engine::{player_engine::PlayerEngine, symphonia_gst_player_engine::SymphoniaGstPlayerEngine},
 };
 use std::os::unix::net::UnixListener;
 use std::path::Path;
+use std::thread::JoinHandle;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -59,13 +60,13 @@ fn daemonize_self() -> Result<()> {
 }
 
 fn run_server() -> Result<()> {
-    let engine = GstPlayerEngine {};
+    cleanup_stale_socket(SOCKET_PATH)?;
+    let listener = UnixListener::bind(SOCKET_PATH)
+        .with_context(|| format!("failed to bind socket at {SOCKET_PATH}"))?;
+    let mut playback_thread: Option<JoinHandle<Result<()>>> = None;
 
     loop {
-        cleanup_stale_socket(SOCKET_PATH)?;
-
-        let listener = UnixListener::bind(SOCKET_PATH)
-            .with_context(|| format!("failed to bind socket at {SOCKET_PATH}"))?;
+        reap_finished_playback(&mut playback_thread);
         let (mut stream, _addr) = listener
             .accept()
             .context("failed to accept client connection")?;
@@ -73,21 +74,40 @@ fn run_server() -> Result<()> {
         let cmd =
             serde_json::from_reader(&mut stream).context("failed to parse command from client")?;
 
-        match cmd {
+        let response = match cmd {
             kobeat::model::player_command::PlayerCommand::Play { path } => {
-                engine.play(path);
+                match start_playback(&mut playback_thread, path) {
+                    Ok(()) => "{\"ok\":true}\n",
+                    Err(err) => {
+                        eprintln!("{err:#}");
+                        "{\"ok\":false,\"error\":\"playback already running\"}\n"
+                    }
+                }
+            }
+            kobeat::model::player_command::PlayerCommand::Resume => {
+                match start_playback(
+                    &mut playback_thread,
+                    "/mnt/onboard/audiostuff/street_circus.mp3".to_string(),
+                ) {
+                    Ok(()) => "{\"ok\":true}\n",
+                    Err(err) => {
+                        eprintln!("{err:#}");
+                        "{\"ok\":false,\"error\":\"playback already running\"}\n"
+                    }
+                }
             }
             kobeat::model::player_command::PlayerCommand::Pause => {
-                engine.pause();
+                SymphoniaGstPlayerEngine {}.pause();
+                "{\"ok\":true}\n"
             }
             _ => {
-                // For now, just print the command and return a generic response.
                 println!("Received command: {:?}", cmd);
+                "{\"ok\":true}\n"
             }
-        }
+        };
 
         use std::io::Write;
-        stream.write_all(b"{\"ok\":true}\n")?;
+        stream.write_all(response.as_bytes())?;
 
         stream
             .shutdown(std::net::Shutdown::Write)
@@ -101,4 +121,43 @@ fn cleanup_stale_socket(path: &str) -> Result<()> {
         std::fs::remove_file(p).with_context(|| format!("failed to remove stale socket {path}"))?;
     }
     Ok(())
+}
+
+fn start_playback(
+    playback_thread: &mut Option<JoinHandle<Result<()>>>,
+    path: String,
+) -> Result<()> {
+    reap_finished_playback(playback_thread);
+
+    if playback_thread
+        .as_ref()
+        .is_some_and(|handle| !handle.is_finished())
+    {
+        anyhow::bail!("playback already running");
+    }
+
+    *playback_thread = Some(std::thread::spawn(move || {
+        SymphoniaGstPlayerEngine {}.play(path)
+    }));
+
+    Ok(())
+}
+
+fn reap_finished_playback(playback_thread: &mut Option<JoinHandle<Result<()>>>) {
+    if !playback_thread
+        .as_ref()
+        .is_some_and(std::thread::JoinHandle::is_finished)
+    {
+        return;
+    }
+
+    let handle = playback_thread
+        .take()
+        .expect("playback thread exists when marked finished");
+
+    match handle.join() {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => eprintln!("Playback failed: {err:#}"),
+        Err(_) => eprintln!("Playback thread panicked"),
+    }
 }

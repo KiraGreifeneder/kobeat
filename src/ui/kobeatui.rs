@@ -83,7 +83,7 @@ fn render_page(message: Option<&str>) -> Markup {
                         }
 
                         main {
-                            max-width: 22rem;
+                            max-width: 25rem;
                             margin: 2rem auto;
                             padding: 1.5rem;
                             background: #fffdf8;

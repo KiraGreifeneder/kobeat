@@ -1,6 +1,4 @@
 use anyhow::{Context, Result};
-use symphonia::core::audio::AudioBuffer;
-use symphonia::core::audio::GenericAudioBuffer;
 use symphonia::core::codecs::audio::AudioDecoder;
 use symphonia::core::codecs::audio::AudioDecoderOptions;
 use symphonia::core::errors::Error as SymphoniaError;
@@ -59,6 +57,7 @@ impl SymphoniaDecoder {
         Ok(())
     }
 
+    // to be called in a loop.
     pub fn read_pcm_i16(&mut self, out: &mut Vec<i16>) -> Result<usize> {
         // Get the next packet from the media format.
         let packet = match self.format.next_packet() {
@@ -89,37 +88,31 @@ impl SymphoniaDecoder {
 
         // Decode the packet into audio samples.
         match self.decoder.decode(&packet) {
-            Ok(_decoded) => {
-                let spec = *_decoded.spec();
-                let duration = _decoded.capacity() as u64;
-
-                _decoded.copy_bytes_to_vec_interleaved(dst);
-                let mut sample_buffer = AudioBuffer::<i16>::new(duration, spec);
-                sample_buffer.copy_interleaved_ref(_decoded);
+            Ok(audio_buf) => {
+                let mut samples: Vec<i16> = Default::default();
+                samples.resize(audio_buf.samples_interleaved(), i16::MAX);
+                audio_buf.copy_to_slice_interleaved(&mut samples);
 
                 out.clear();
-                out.extend_from_slice(sample_buffer.samples())
+                out.extend_from_slice(&samples);
 
-                Ok(out.len())
+                Ok(samples.len())
             }
             Err(SymphoniaError::IoError(_)) => {
-                // The packet failed to decode due to an IO error
-                return Err(anyhow::Error::new(SymphoniaError::IoError).context(
-                    "The packet failed to decode due to an IO error, you may skip this packet",
-                ));
+                Ok(0)
             }
             Err(SymphoniaError::DecodeError(_)) => {
                 // The packet failed to decode due to invalid data, skip the packet.
-                continue;
+                Ok(0)
             }
             Err(err) => {
                 // An unrecoverable error occurred, halt decoding.
-                panic!("{}", err);
+                Err(anyhow::Error::new(err).context("failed to decode packet"))
             }
         }
     }
 
-    pub fn seek(&mut self, position_secs: f64) -> Result<()> {
-        !todo()
+    pub fn seek(&mut self, _position_secs: f64) -> Result<()> {
+        anyhow::bail!("seek is not implemented yet")
     }
 }

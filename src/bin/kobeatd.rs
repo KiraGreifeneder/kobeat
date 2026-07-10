@@ -4,7 +4,7 @@ use kobeat::{
 };
 use std::os::unix::net::UnixListener;
 use std::path::Path;
-use std::thread::JoinHandle;
+use tokio::thread::JoinHandle;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -137,7 +137,13 @@ fn start_playback(
     }
 
     *playback_thread = Some(std::thread::spawn(move || {
-        SymphoniaGstPlayerEngine {}.play(path)
+        let result = SymphoniaGstPlayerEngine {}.play(path);
+
+        if let Err(err) = &result {
+            eprintln!("Playback failed immediately: {err:#}");
+        }
+
+        result
     }));
 
     Ok(())

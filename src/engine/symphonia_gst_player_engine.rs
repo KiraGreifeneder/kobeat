@@ -12,6 +12,7 @@ pub struct SymphoniaGstPlayerEngine {}
 impl PlayerEngine for SymphoniaGstPlayerEngine {
     fn play(&self, path: String) -> Result<()> {
         println!("Playing: {}", path);
+
         let mut decoder =
             SymphoniaDecoder::open(&path).context("Couldn't create Symphonia decoder.")?;
         let channels_arg = format!("num-channels={}", decoder.channels());
@@ -31,16 +32,17 @@ impl PlayerEngine for SymphoniaGstPlayerEngine {
                 "!",
                 "audioresample",
                 "!",
-                "!",
-                "volume",
-                "volume=1",
                 "mtkbtmwrpcaudiosink",
             ])
             .stdin(Stdio::piped())
             .spawn()
-            .expect("Failed to start GStreamer");
+            .context("Failed to start GStreamer")?;
+
+        println!("Opening Stdin");
 
         let mut stdin = child.stdin.take().expect("Failed to open stdin");
+
+        println!("Loop time");
 
         while !decoder.done {
             let mut out = Vec::new();

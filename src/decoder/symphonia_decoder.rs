@@ -73,6 +73,7 @@ impl SymphoniaDecoder {
 
     // to be called in a loop.
     pub fn read_pcm_s16le(&mut self, out: &mut Vec<u8>) -> Result<usize> {
+        print!("reading");
         // Get the next packet from the media format.
         let packet = match self.format.next_packet() {
             Ok(Some(packet)) => packet,
@@ -107,6 +108,8 @@ impl SymphoniaDecoder {
                 out.resize(audio_buf.samples_interleaved() * size_of::<i16>(), 0);
                 audio_buf.copy_bytes_interleaved_as::<i16, _>(out.as_mut_slice());
 
+                print!("decoding ok, append to out.");
+
                 Ok(out.len())
             }
             Err(SymphoniaError::IoError(err)) => {
@@ -115,6 +118,7 @@ impl SymphoniaDecoder {
             }
             Err(SymphoniaError::DecodeError(_)) => {
                 // The packet failed to decode due to invalid data, skip the packet.
+                print!("Packet failed to decode due to invalid data. Skipping.");
                 Ok(0)
             }
             Err(err) => {

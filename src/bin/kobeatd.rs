@@ -1,10 +1,10 @@
 use kobeat::{
     config::SOCKET_PATH,
-    engine::{player_engine::PlayerEngine, symphonia_gst_player_engine::SymphoniaGstPlayerEngine},
+    daemon::player::{Player, symphonia_gst_player::SymphoniaGstPlayer},
 };
 use std::os::unix::net::UnixListener;
 use std::path::Path;
-use tokio::thread::JoinHandle;
+use std::thread::JoinHandle;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -75,7 +75,7 @@ fn run_server() -> Result<()> {
             serde_json::from_reader(&mut stream).context("failed to parse command from client")?;
 
         let response = match cmd {
-            kobeat::model::player_command::PlayerCommand::Play { path } => {
+            kobeat::entity::player_command::PlayerCommand::Play { path } => {
                 match start_playback(&mut playback_thread, path) {
                     Ok(()) => "{\"ok\":true}\n",
                     Err(err) => {
@@ -84,7 +84,7 @@ fn run_server() -> Result<()> {
                     }
                 }
             }
-            kobeat::model::player_command::PlayerCommand::Resume => {
+            kobeat::entity::player_command::PlayerCommand::Resume => {
                 match start_playback(
                     &mut playback_thread,
                     "/mnt/onboard/audiostuff/street_circus.mp3".to_string(),
@@ -96,8 +96,8 @@ fn run_server() -> Result<()> {
                     }
                 }
             }
-            kobeat::model::player_command::PlayerCommand::Pause => {
-                SymphoniaGstPlayerEngine {}.pause();
+            kobeat::entity::player_command::PlayerCommand::Pause => {
+                SymphoniaGstPlayer {}.pause();
                 "{\"ok\":true}\n"
             }
             _ => {
@@ -137,7 +137,7 @@ fn start_playback(
     }
 
     *playback_thread = Some(std::thread::spawn(move || {
-        let result = SymphoniaGstPlayerEngine {}.play(path);
+        let result = SymphoniaGstPlayer {}.play(path);
 
         if let Err(err) = &result {
             eprintln!("Playback failed immediately: {err:#}");

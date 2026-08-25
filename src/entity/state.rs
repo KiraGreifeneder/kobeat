@@ -1,4 +1,4 @@
-use crate::model::track::Track;
+use crate::entity::track::Track;
 
 pub enum PlaybackState {
     Stopped,

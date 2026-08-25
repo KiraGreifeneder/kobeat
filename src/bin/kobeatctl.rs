@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use kobeat::control;
-use kobeat::model::player_command::PlayerCommand;
+use kobeat::entity::player_command::PlayerCommand;
 
 #[derive(Parser, Debug)]
 struct Args {

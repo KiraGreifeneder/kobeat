@@ -5,11 +5,12 @@ use std::{
 
 use anyhow::{Context, Result};
 
-use crate::{decoder::symphonia_decoder::SymphoniaDecoder, engine::player_engine::PlayerEngine};
+use crate::daemon::decoder::symphonia_decoder::SymphoniaDecoder;
+use crate::daemon::player::Player;
 
-pub struct SymphoniaGstPlayerEngine {}
+pub struct SymphoniaGstPlayer {}
 
-impl PlayerEngine for SymphoniaGstPlayerEngine {
+impl Player for SymphoniaGstPlayer {
     fn play(&self, path: String) -> Result<()> {
         println!("Playing: {}", path);
 

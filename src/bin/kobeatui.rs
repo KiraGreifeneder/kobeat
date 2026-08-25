@@ -5,7 +5,7 @@ use axum::{
     response::Html,
     routing::{get, post},
 };
-use kobeat::{control, model::player_command::PlayerCommand};
+use kobeat::{control, entity::player_command::PlayerCommand};
 use maud::{DOCTYPE, Markup, html};
 use serde::Deserialize;
 use tokio::net::TcpListener;

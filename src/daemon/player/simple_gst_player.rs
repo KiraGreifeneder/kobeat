@@ -1,9 +1,9 @@
-use crate::engine::player_engine::PlayerEngine;
+use crate::daemon::player::Player;
 use std::process::Command;
 
-pub struct SimpleGstPlayerEngine {}
+pub struct SimpleGstPlayer {}
 
-impl PlayerEngine for SimpleGstPlayerEngine {
+impl Player for SimpleGstPlayer {
     fn play(&self, path: String) -> Result<(), anyhow::Error> {
         println!("Playing: {}", path);
 

@@ -1,3 +1,4 @@
 pub mod client;
-pub mod repository;
+pub mod playlist;
+pub mod sequencer;
 pub mod ui;

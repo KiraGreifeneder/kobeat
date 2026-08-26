@@ -1,4 +1,4 @@
-use crate::{config::SOCKET_PATH, entity::player_command::PlayerCommand};
+use crate::{config::SOCKET_PATH, domain::player_command::PlayerCommand};
 use anyhow::{Context, Result};
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;

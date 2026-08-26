@@ -1,3 +1,4 @@
+pub mod cli;
 pub mod decoder;
 pub mod player;
 pub mod player_server;

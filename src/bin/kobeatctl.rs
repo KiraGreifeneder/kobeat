@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
-use kobeat::control;
-use kobeat::entity::player_command::PlayerCommand;
+use kobeat::client::client;
+use kobeat::domain::player_command::PlayerCommand;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -11,7 +11,7 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    let response = control::send_command(&args.command)?;
+    let response = client::send_command(&args.command)?;
     println!("{}", response);
     Ok(())
 }

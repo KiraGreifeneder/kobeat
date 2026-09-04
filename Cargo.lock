@@ -375,6 +375,7 @@ dependencies = [
  "clap",
  "libc",
  "maud",
+ "percent-encoding",
  "serde",
  "serde_json",
  "symphonia",

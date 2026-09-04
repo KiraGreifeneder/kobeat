@@ -1,3 +1,4 @@
+use crate::domain::state::SessionState;
 use crate::{config::SOCKET_PATH, domain::player_command::PlayerCommand};
 use anyhow::{Context, Result};
 use std::io::{Read, Write};

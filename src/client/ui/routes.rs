@@ -1,10 +1,11 @@
 use axum::{
-    Router,
+    Form, Router,
     extract::Query,
     response::Html,
     routing::{get, post},
 };
 use serde::Deserialize;
+use std::path::PathBuf;
 
 use crate::{client::client, domain::player_command::PlayerCommand};
 
@@ -13,6 +14,16 @@ use super::page::render_page;
 #[derive(Debug, Default, Deserialize)]
 struct IndexParams {
     message: Option<String>,
+    /// Directory currently being browsed. Defaults to the library root.
+    path: Option<PathBuf>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct PlayForm {
+    /// Track to play. Absent when the transport bar's play button is used,
+    /// which resumes instead.
+    #[serde(default)]
+    path: Option<String>,
 }
 
 pub fn app() -> Router {
@@ -23,11 +34,16 @@ pub fn app() -> Router {
 }
 
 async fn index(Query(params): Query<IndexParams>) -> Html<String> {
-    Html(render_page(params.message.as_deref()).into_string())
+    Html(render_page(params.message.as_deref(), params.path.as_deref()).into_string())
 }
 
-async fn play() -> Html<String> {
-    render_command_result(PlayerCommand::Resume).await
+async fn play(Form(form): Form<PlayForm>) -> Html<String> {
+    let command = match form.path {
+        Some(path) => PlayerCommand::Play { path },
+        None => PlayerCommand::Resume,
+    };
+
+    render_command_result(command).await
 }
 
 async fn pause() -> Html<String> {
@@ -43,5 +59,5 @@ async fn render_command_result(command: PlayerCommand) -> Html<String> {
         })
         .unwrap_or_else(|error| format!("Error: failed to join command task: {error}"));
 
-    Html(render_page(Some(&message)).into_string())
+    Html(render_page(Some(&message), None).into_string())
 }

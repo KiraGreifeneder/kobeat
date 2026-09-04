@@ -8,19 +8,28 @@ use anyhow::{Context, Result};
 
 use crate::{
     daemon::player::{Player, symphonia_gst_player::SymphoniaGstPlayer},
-    domain::player_command::PlayerCommand,
+    domain::{
+        player_command::PlayerCommand,
+        state::{PlaybackState, SessionState},
+    },
 };
 
 /// Owns the daemon's command loop: binds the control socket, accepts client
 /// connections, and dispatches `PlayerCommand`s to the playback backend.
 pub struct PlayerServer {
     playback_thread: Option<JoinHandle<Result<()>>>,
+    session_state: SessionState,
 }
 
 impl PlayerServer {
     pub fn new() -> Self {
         Self {
             playback_thread: None,
+            session_state: SessionState {
+                current_track: None,
+                playback_state: PlaybackState::Stopped,
+                base_position_secs: 0.0,
+            },
         }
     }
 

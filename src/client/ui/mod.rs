@@ -6,6 +6,8 @@ use tokio::net::TcpListener;
 
 pub use routes::app;
 
+use crate::domain::state::SessionState;
+
 const DEFAULT_BIND_ADDR: &str = "0.0.0.0:3000";
 
 /// Resolves the bind address, starts the web UI, and serves it until the

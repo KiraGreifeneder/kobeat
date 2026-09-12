@@ -4,7 +4,15 @@ use std::process::Command;
 pub struct SimpleGstPlayer {}
 
 impl Player for SimpleGstPlayer {
-    fn play(&self, path: String) -> Result<(), anyhow::Error> {
+    fn get_state(&self) -> crate::domain::state::PlayerState {
+        crate::domain::state::PlayerState {
+            current_track: None,
+            playback_state: crate::domain::state::PlaybackState::Stopped,
+            base_position_secs: 0.0,
+        }
+    }
+
+    fn play(&mut self, path: String) -> Result<(), anyhow::Error> {
         println!("Playing: {}", path);
 
         Command::new("gst-play-1.0")

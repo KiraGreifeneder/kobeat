@@ -7,17 +7,27 @@ use anyhow::{Context, Result};
 
 use crate::daemon::decoder::symphonia_decoder::SymphoniaDecoder;
 use crate::daemon::player::Player;
+use crate::domain::state::{PlaybackState, PlayerState};
 
-pub struct SymphoniaGstPlayer {}
+pub struct SymphoniaGstPlayer {
+    last_start_time: Option<std::time::Instant>,
+    last_pause_time: Option<std::time::Instant>,
+    playback_state: PlaybackState,
+    decoder: SymphoniaDecoder,
+}
 
 impl Player for SymphoniaGstPlayer {
-    fn play(&self, path: String) -> Result<()> {
+    fn get_state(&self) -> PlayerState {
+        !todo!()
+    }
+
+    fn play(&mut self, path: String) -> Result<()> {
         println!("Playing: {}", path);
 
-        let mut decoder =
+        self.decoder =
             SymphoniaDecoder::open(&path).context("Couldn't create Symphonia decoder.")?;
-        let channels_arg = format!("num-channels={}", decoder.channels());
-        let sample_rate_arg = format!("sample-rate={}", decoder.sample_rate());
+        let channels_arg = format!("num-channels={}", self.decoder.channels());
+        let sample_rate_arg = format!("sample-rate={}", self.decoder.sample_rate());
 
         let mut child = Command::new("gst-launch-1.0")
             .args(&[
@@ -39,15 +49,11 @@ impl Player for SymphoniaGstPlayer {
             .spawn()
             .context("Failed to start GStreamer")?;
 
-        println!("Opening Stdin");
-
         let mut stdin = child.stdin.take().expect("Failed to open stdin");
 
-        println!("Loop time");
-
-        while !decoder.done {
+        while !self.decoder.done && &self.playback_state == &PlaybackState::Playing {
             let mut out = Vec::new();
-            decoder
+            self.decoder
                 .read_pcm_s16le(&mut out)
                 .context("Couldn't read decoded audio")?;
 

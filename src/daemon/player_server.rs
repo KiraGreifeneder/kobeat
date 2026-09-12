@@ -10,7 +10,7 @@ use crate::{
     daemon::player::{Player, symphonia_gst_player::SymphoniaGstPlayer},
     domain::{
         player_command::PlayerCommand,
-        state::{PlaybackState, SessionState},
+        state::{PlaybackState, PlayerState},
     },
 };
 
@@ -18,14 +18,14 @@ use crate::{
 /// connections, and dispatches `PlayerCommand`s to the playback backend.
 pub struct PlayerServer {
     playback_thread: Option<JoinHandle<Result<()>>>,
-    session_state: SessionState,
+    session_state: PlayerState,
 }
 
 impl PlayerServer {
     pub fn new() -> Self {
         Self {
             playback_thread: None,
-            session_state: SessionState {
+            session_state: PlayerState {
                 current_track: None,
                 playback_state: PlaybackState::Stopped,
                 base_position_secs: 0.0,

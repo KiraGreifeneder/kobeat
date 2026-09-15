@@ -7,7 +7,9 @@ use axum::{
 use serde::Deserialize;
 use std::path::PathBuf;
 
-use crate::{client::client, domain::player_command::*};
+use crate::{
+    client::client, client::directory_snapshot::DirectoryTree, domain::player_command::*,
+};
 
 use super::page::render_page;
 
@@ -30,6 +32,15 @@ struct SeekForm {
     position_secs: u64,
 }
 
+#[derive(Debug, Default, Deserialize)]
+struct QueueForm {
+    /// Directory whose listing should become the queue.
+    dir: PathBuf,
+    /// Whether to also include files from every scanned sub-directory.
+    #[serde(default)]
+    include_subdirs: bool,
+}
+
 pub fn app() -> Router {
     Router::new()
         .route("/", get(index))
@@ -37,6 +48,9 @@ pub fn app() -> Router {
         .route("/pause", post(pause))
         .route("/status", get(status))
         .route("/seek", post(seek))
+        .route("/queue", post(queue))
+        .route("/next", post(next))
+        .route("/previous", post(previous))
         .route("/shutdown", post(shutdown))
 }
 
@@ -73,8 +87,40 @@ async fn seek(Form(form): Form<SeekForm>) -> Html<String> {
     render_command_result(response).await
 }
 
+async fn queue(Form(form): Form<QueueForm>) -> Html<String> {
+    let tree = match DirectoryTree::scan(&form.dir, 3) {
+        Ok(tree) => tree,
+        Err(error) => {
+            return render_command_result(PlayerResponse::Error(format!(
+                "Failed to scan {}: {error:#}",
+                form.dir.display()
+            )))
+            .await;
+        }
+    };
+
+    let paths = tree
+        .files(&form.dir, form.include_subdirs)
+        .into_iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect();
+
+    let response = send_command(PlayerCommand::SetQueue { paths }).await;
+    render_command_result(response).await
+}
+
+async fn next() -> Html<String> {
+    let response = send_command(PlayerCommand::PlayNext).await;
+    render_command_result(response).await
+}
+
 async fn shutdown() -> Html<String> {
     let response = send_command(PlayerCommand::Shutdown).await;
+    render_command_result(response).await
+}
+
+async fn previous() -> Html<String> {
+    let response = send_command(PlayerCommand::PlayPrevious).await;
     render_command_result(response).await
 }
 

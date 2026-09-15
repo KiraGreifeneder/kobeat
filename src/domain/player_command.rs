@@ -10,6 +10,9 @@ pub enum PlayerCommand {
     Resume,
     Seek { position_secs: u64 },
     GetPlayerState,
+    SetQueue { paths: Vec<String> },
+    PlayNext,
+    PlayPrevious,
     Shutdown,
 }
 

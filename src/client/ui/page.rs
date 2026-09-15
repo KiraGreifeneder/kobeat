@@ -163,6 +163,13 @@ pub fn render_page(
                             color: gray;
                             font-size: 0.95rem;
                         }
+
+                        .queue_form {
+                            display: flex;
+                            align-items: center;
+                            gap: 0.75rem;
+                            margin: 0.75rem 0;
+                        }
                     "#
                 }
             }
@@ -189,6 +196,17 @@ pub fn render_page(
                         h2 { "no music library found" }
                     }
 
+                    @if let Some(snapshot) = displayed_snapshot {
+                        form method="post" action="/queue" class="queue_form" {
+                            input type="hidden" name="dir" value=(snapshot.dir.to_string_lossy());
+                            label {
+                                input type="checkbox" name="include_subdirs" value="true" {}
+                                " include sub-directories"
+                            }
+                            button type="submit" { "set queue from this folder" }
+                        }
+                    }
+
                     list {
                         @if let Some(snapshot) = displayed_snapshot {
                             @if let Some(parent) = parent {
@@ -210,14 +228,26 @@ pub fn render_page(
                 span class="controls__container" {
                     @if player_state.is_some_and(|state| matches!(state.playback_state, PlaybackState::Playing)) {
                         span class="controls__button_row" {
+                            form method="post" action="/previous" {
+                                button type="submit" class="control_button" { "⏮" }
+                            }
                             form method="post" action="/pause" {
                                 button type="submit" class="control_button" { "❚❚" }
+                            }
+                            form method="post" action="/next" {
+                                button type="submit" class="control_button" { "⏭" }
                             }
                         }
                     } @else {
                         span class="controls__button_row" {
+                            form method="post" action="/previous" {
+                                button type="submit" class="control_button" { "⏮" }
+                            }
                             form method="post" action="/play" {
                                 button type="submit" class="control_button" { "▶︎" }
+                            }
+                            form method="post" action="/next" {
+                                button type="submit" class="control_button" { "⏭" }
                             }
                         }
                     }

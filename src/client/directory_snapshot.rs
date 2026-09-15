@@ -103,6 +103,25 @@ impl DirectoryTree {
         crumbs.reverse();
         crumbs
     }
+
+    /// Files directly inside `dir`, and, if `recursive` is set, files in every
+    /// scanned sub-directory as well. Order is depth-first and follows the
+    /// same sort applied during [`DirectoryTree::scan`].
+    pub fn files(&self, dir: &Path, recursive: bool) -> Vec<PathBuf> {
+        let Some(node) = self.node(dir) else {
+            return Vec::new();
+        };
+
+        let mut files = node.files.clone();
+
+        if recursive {
+            for subdir in &node.subdirs {
+                files.extend(self.files(subdir, true));
+            }
+        }
+
+        files
+    }
 }
 
 #[cfg(test)]

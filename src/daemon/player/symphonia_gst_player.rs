@@ -5,9 +5,7 @@ use std::{
 
 use anyhow::{Context, Result};
 
-use c
-    fn resume() -> Result<()>;
-    fn resume() -> Result<()>;rate::daemon::decoder::symphonia_decoder::SymphoniaDecoder;
+use crate::daemon::decoder::symphonia_decoder::SymphoniaDecoder;
 use crate::daemon::player::Player;
 use crate::domain::state::{PlaybackState, PlayerState};
 
@@ -19,10 +17,6 @@ pub struct SymphoniaGstPlayer {
 
 impl Player for SymphoniaGstPlayer {
     fn get_state(&self) -> PlayerState {
-        !todo!()
-    }
-
-    fn resume() -> Result<()> {
         !todo!()
     }
 

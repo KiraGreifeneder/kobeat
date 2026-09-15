@@ -117,7 +117,7 @@ impl PlayerServer {
                 let result = player
                     .lock()
                     .expect("player mutex poisoned")
-                    .play_from_start(path);
+                    .load_and_play(path);
 
                 if let Err(err) = &result {
                     eprintln!("Playback failed immediately: {err:#}");

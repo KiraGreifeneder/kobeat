@@ -13,10 +13,10 @@ use crate::domain::track::Track;
 
 pub struct SymphoniaGstPlayer {
     last_start_time: Option<std::time::Instant>,
-    last_paused_pos_secs: Option<f64>,
+    last_known_pos_secs: f64,
     playback_state: Arc<Mutex<PlaybackState>>,
     current_path: Option<String>,
-    current_duration_secs: Option<f64>,
+    current_duration_secs: f64,
     current_title: Option<String>,
 }
 
@@ -26,8 +26,8 @@ impl Player for SymphoniaGstPlayer {
             last_start_time: None,
             playback_state: Arc::new(Mutex::new(PlaybackState::Stopped)),
             current_path: None,
-            current_duration_secs: None,
-            last_paused_pos_secs: None,
+            current_duration_secs: 0.0,
+            last_known_pos_secs: 0.0,
             current_title: None,
         }
     }
@@ -44,17 +44,14 @@ impl Player for SymphoniaGstPlayer {
         }
     }
 
-    fn play_from_start(&mut self, path: String) -> Result<PlaybackOutcome> {
+    fn load_and_play(&mut self, path: String) -> Result<PlaybackOutcome> {
         println!("Playing: {}", path);
 
-        // The decoder only needs to live for the duration of this call; the
-        // track metadata we care about afterwards is copied into our own
-        // fields below so `get_track` doesn't need to keep a decoder around.
         let mut decoder =
             SymphoniaDecoder::open(&path).context("Couldn't create Symphonia decoder.")?;
 
         self.current_path = Some(path);
-        self.current_duration_secs = decoder.duration_secs();
+        self.current_duration_secs = decoder.duration_secs().unwrap_or(0.0);
         self.current_title = decoder.title();
 
         let channels_arg = format!("num-channels={}", decoder.channels());
@@ -97,11 +94,7 @@ impl Player for SymphoniaGstPlayer {
             }
         });
 
-        // Mark playback as actually happening now that the pipeline is up.
-        // The loop re-locks `playback_state` on every iteration (a very
-        // short critical section) rather than holding a lock for the whole
-        // track, so a `pause()` call from another thread takes effect on the
-        // next iteration instead of having to wait for the track to finish.
+        self.last_start_time = Some(std::time::Instant::now());
         *self.playback_state.lock().expect("state mutex poisoned") = PlaybackState::Playing;
 
         loop {
@@ -130,11 +123,6 @@ impl Player for SymphoniaGstPlayer {
                 .context("Broken pipe while writing PCM data to GStreamer")?;
         }
 
-        // Whether the loop exited because the decoder ran out of data (a
-        // natural end-of-track) rather than because playback was paused or
-        // stopped partway through. We use this below to decide whether the
-        // eventual clean process exit really means "the track finished
-        // playing" as opposed to "we cut it short."
         let decoded_to_completion = decoder.done;
 
         drop(stdin);
@@ -159,8 +147,13 @@ impl Player for SymphoniaGstPlayer {
         }
     }
 
-    fn pause(&self) {
+    fn pause(&mut self) {
         *self.playback_state.lock().expect("state mutex poisoned") = PlaybackState::Paused;
+        let elapsed_time = self
+            .last_start_time
+            .map(|start| start.elapsed().as_secs_f64());
+
+        self.last_known_pos_secs = self.last_known_pos_secs + elapsed_time.unwrap_or(0.0);
     }
 
     fn playback_state(&self) -> Arc<Mutex<PlaybackState>> {

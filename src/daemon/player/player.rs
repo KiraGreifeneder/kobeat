@@ -8,8 +8,8 @@ pub trait Player: Send {
     where
         Self: Sized;
     fn get_state(&self) -> PlayerState;
-    fn play_from_start(&mut self, path: String) -> Result<PlaybackOutcome, anyhow::Error>;
-    fn pause(&self);
+    fn load_and_play(&mut self, path: String) -> Result<PlaybackOutcome, anyhow::Error>;
+    fn pause(&mut self);
 
     /// A cheap, cloneable handle to this player's live playback state.
     ///

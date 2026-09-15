@@ -7,9 +7,7 @@ use axum::{
 use serde::Deserialize;
 use std::path::PathBuf;
 
-use crate::{
-    client::client, client::directory_snapshot::DirectoryTree, domain::player_command::*,
-};
+use crate::{client::client, client::directory_snapshot::DirectoryTree, domain::player_command::*};
 
 use super::page::render_page;
 
@@ -42,8 +40,10 @@ struct QueueForm {
 }
 
 pub fn app() -> Router {
-    Router::new()
+    println!("app func");
+    let router = Router::new()
         .route("/", get(index))
+        .route("/ping", get(ping))
         .route("/play", post(play))
         .route("/pause", post(pause))
         .route("/status", get(status))
@@ -51,20 +51,31 @@ pub fn app() -> Router {
         .route("/queue", post(queue))
         .route("/next", post(next))
         .route("/previous", post(previous))
-        .route("/shutdown", post(shutdown))
+        .route("/shutdown", post(shutdown));
+    println!("created routes");
+    return router;
+}
+
+/// Bare-bones route that touches nothing else (no daemon socket, no
+/// rendering). If this hangs or never logs, the axum server itself isn't
+/// receiving/handling the request. If this works but `/` doesn't, the
+/// problem is downstream (daemon socket, rendering, etc).
+async fn ping() -> &'static str {
+    println!("pinggg!!");
+    tracing::info!("ping handler reached");
+    "hello"
 }
 
 async fn index(Query(params): Query<IndexParams>) -> Html<String> {
+    println!("index!");
     let response = send_command(PlayerCommand::GetPlayerState).await;
+    println!("fetched player state");
     let state = match &response {
         PlayerResponse::State(state) => Some(state),
         _ => None,
     };
 
-    Html(
-        render_page(params.message.as_deref(), state, params.path.as_deref())
-            .into_string(),
-    )
+    Html(render_page(params.message.as_deref(), state, params.path.as_deref()).into_string())
 }
 
 async fn play(Form(form): Form<PlayForm>) -> Html<String> {

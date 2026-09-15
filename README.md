@@ -36,6 +36,46 @@ The final binaries (kobeatd, kobeatctl, kobeatui) will be located in `target/arm
 
 kobeatd is the daemon that runs on the Kobo, while kobeatctl is a command-line tool for controlling the daemon from your computer. You can use kobeatctl to play, pause, skip tracks, and manage your music library on the Kobo.
 
+
+
+## Usage (IMPORTANT PREREQUISITES)
+
+Place both files on your Kobo's file system.
+
+```
+# Browser menu item for exiting the browser
+menu_item :browser :Exit Browser :nickel_misc :home
+
+# Main menu item for launching the browser in a modal with the kobeat ui
+menu_item :main :Kobeat :nickel_browser :modal:http://127.0.0.1:3000
+
+```
+
+Set `kobeatd` to run automatically on startup. E.g. systemctl start
+
+### Loopback interface on Kobo
+
+Kobo's stripped-down firmware does not bring up the `lo` (loopback)
+interface by default. Since kobeatui is served on `127.0.0.1`, a down `lo`
+means the browser (and even local tools like `curl`/`ncat` on the device)
+will simply hang/time out trying to reach it, even though kobeatui logs
+that it's listening and is completely healthy otherwise. You can confirm
+this with:
+
+```bash
+ip addr show lo
+```
+
+A broken interface shows no `UP,LOWER_UP` flags and no `inet 127.0.0.1/8`
+line. Use `scripts/kobeat-start.sh` (copied alongside the binaries) to
+start both daemons — it brings `lo` up first so this doesn't need to be
+done manually over SSH after every reboot:
+
+```bash
+./scripts/kobeat-start.sh
+```
+
+
 ## Local Testing
 
 For now there's no dedicated virtual environment to test the binaries locally.
@@ -67,18 +107,3 @@ This includes things like playlist management.
 ### /ui
 
 The UI directory owns the server and client code for kobeatui.
-
-## Usage
-
-Place both files on your Kobo's file system.
-
-```
-# Browser menu item for exiting the browser
-menu_item :browser :Exit Browser :nickel_misc :home
-
-# Main menu item for launching the browser in a modal with the kobeat ui
-menu_item :main :Kobeat :nickel_browser :modal:http://127.0.0.1:3000
-
-```
-
-Set `kobeatd` to run automatically on startup. E.g. systemctl start

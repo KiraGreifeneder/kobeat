@@ -80,7 +80,7 @@ pub fn render_page(
                             background: #8eea60;
                             position: fixed;
                             bottom: 0px;
-                            height: 3rem;
+                            height: 10rem;
                             padding: 1rem;
                             align-items: center;
                             gap: 1rem;

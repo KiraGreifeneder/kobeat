@@ -1,31 +1,77 @@
 mod page;
 mod routes;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
+use std::time::Duration;
 use tokio::net::TcpListener;
+use tower_http::trace::TraceLayer;
+use tracing::Level;
+use tracing_subscriber::EnvFilter;
 
 pub use routes::app;
 
-
 const DEFAULT_BIND_ADDR: &str = "0.0.0.0:3000";
+
+/// How long to wait for the initial TCP bind before giving up. A plain
+/// `TcpListener::bind` normally returns almost instantly, but if it ever
+/// hangs (e.g. some sandboxing/network quirk on device) this turns a
+/// silent, indefinite hang into a clear timeout error instead.
+const BIND_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Resolves the bind address, starts the web UI, and serves it until the
 /// server stops or fails. This is the sole entry point the `kobeatui`
 /// binary calls from `main()`.
 pub async fn run() -> Result<()> {
+    init_logging();
+
     let bind_addr =
         std::env::var("KOBEATUI_BIND").unwrap_or_else(|_| DEFAULT_BIND_ADDR.to_string());
-    let listener = TcpListener::bind(&bind_addr)
-        .await
-        .with_context(|| format!("failed to bind web UI to {bind_addr}"))?;
+
+    println!("kobeat web UI binding to {bind_addr}...");
+
+    let listener = match tokio::time::timeout(BIND_TIMEOUT, TcpListener::bind(&bind_addr)).await {
+        Ok(Ok(listener)) => listener,
+        Ok(Err(err)) => {
+            return Err(err).with_context(|| format!("failed to bind web UI to {bind_addr}"));
+        }
+        Err(_) => {
+            bail!("timed out after {BIND_TIMEOUT:?} binding web UI to {bind_addr}");
+        }
+    };
 
     println!("kobeat web UI listening on http://{bind_addr}");
 
-    axum::serve(listener, app())
+    let app = app().layer(
+        TraceLayer::new_for_http()
+            .on_request(|request: &axum::http::Request<_>, _span: &tracing::Span| {
+                tracing::info!(method = %request.method(), uri = %request.uri(), "incoming request");
+            })
+            .on_response(
+                |response: &axum::http::Response<_>, latency: std::time::Duration, _span: &tracing::Span| {
+                    tracing::info!(status = %response.status(), ?latency, "response sent");
+                },
+            ),
+    );
+
+    println!("kobeat web UI app built, starting to accept connections...");
+
+    axum::serve(listener, app)
         .await
         .context("web UI server stopped unexpectedly")?;
 
     Ok(())
+}
+
+/// Sets up console logging. Verbosity is controlled with `RUST_LOG`
+/// (e.g. `RUST_LOG=debug`); defaults to `info` so requests are always
+/// visible without extra configuration.
+fn init_logging() {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_max_level(Level::TRACE)
+        .try_init();
 }
 
 #[cfg(test)]

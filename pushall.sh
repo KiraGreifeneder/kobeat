@@ -2,6 +2,5 @@
 
 source $HOME/.zshrc
 
-kobo_push ./target/armv7-unknown-linux-musleabihf/release/kobeatui
-kobo_push ./target/armv7-unknown-linux-musleabihf/release/kobeatd
-kobo_push ./target/armv7-unknown-linux-musleabihf/release/kobeatctl
+kobopush ./target/armv7-unknown-linux-musleabihf/release/kobeatui 10.20.40.10
+kobopush ./target/armv7-unknown-linux-musleabihf/release/kobeatd 10.20.40.10

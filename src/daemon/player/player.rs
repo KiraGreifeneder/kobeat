@@ -1,14 +1,14 @@
 use crate::domain::state::PlayerState;
 use std::sync::{Arc, Mutex};
 
-use crate::domain::state::PlaybackState;
+use crate::domain::state::{PlaybackOutcome, PlaybackState};
 
 pub trait Player: Send {
-    fn new(on_finished_callback: Option<Box<dyn FnMut() + Send>>) -> Self
+    fn new() -> Self
     where
         Self: Sized;
     fn get_state(&self) -> PlayerState;
-    fn play_from_start(&mut self, path: String) -> Result<(), anyhow::Error>;
+    fn play_from_start(&mut self, path: String) -> Result<PlaybackOutcome, anyhow::Error>;
     fn pause(&self);
 
     /// A cheap, cloneable handle to this player's live playback state.

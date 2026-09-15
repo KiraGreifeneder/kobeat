@@ -7,15 +7,19 @@ use std::thread::JoinHandle;
 
 use anyhow::{Context, Result};
 
+use crate::daemon::queue::Queue;
 use crate::{
     daemon::player::{Player, symphonia_gst_player::SymphoniaGstPlayer},
-    domain::{player_command::PlayerCommand, state::PlaybackState},
+    domain::{
+        player_command::PlayerCommand,
+        state::{PlaybackOutcome, PlaybackState},
+    },
 };
 
 /// Owns the daemon's command loop: binds the control socket, accepts client
 /// connections, and dispatches `PlayerCommand`s to the playback backend.
 pub struct PlayerServer {
-    playback_thread: Option<JoinHandle<Result<()>>>,
+    playback_thread: Option<JoinHandle<Result<PlaybackOutcome>>>,
     // Shared with the spawned playback thread so both the command loop and
     // the actively-playing thread can reach the same player instance.
     player: Arc<Mutex<Box<dyn Player>>>,
@@ -25,17 +29,19 @@ pub struct PlayerServer {
     // go through this small, separately-locked flag instead of waiting on
     // `player`.
     playback_state: Arc<Mutex<PlaybackState>>,
+    queue: Queue,
 }
 
 impl PlayerServer {
     pub fn new() -> Self {
-        let player: Box<dyn Player> = Box::new(SymphoniaGstPlayer::new(None));
+        let player: Box<dyn Player> = Box::new(SymphoniaGstPlayer::new());
         let playback_state = player.playback_state();
 
         Self {
             playback_thread: None,
             player: Arc::new(Mutex::new(player)),
             playback_state,
+            queue: Queue::default(),
         }
     }
 
@@ -139,9 +145,29 @@ impl PlayerServer {
             .expect("playback thread exists when marked finished");
 
         match handle.join() {
-            Ok(Ok(())) => {}
+            Ok(Ok(PlaybackOutcome::Finished)) => self.advance_queue(),
+            Ok(Ok(PlaybackOutcome::Interrupted)) => {}
             Ok(Err(err)) => eprintln!("Playback failed: {err:#}"),
             Err(_) => eprintln!("Playback thread panicked"),
+        }
+    }
+
+    /// Starts the next queued track. Only called when the thread we just
+    /// reaped reported `PlaybackOutcome::Finished` -- i.e. the track played
+    /// all the way through on its own, as opposed to being paused or
+    /// stopped partway. That distinction comes straight from
+    /// `play_from_start`'s return value rather than being inferred from
+    /// `playback_state` afterwards, since `playback_state` can't tell "just
+    /// finished" apart from "was stopped" (both would leave it `Stopped`).
+    fn advance_queue(&mut self) {
+        match self.queue.next() {
+            Some(next) => {
+                println!("Finished playback, starting next track: {next}");
+                if let Err(err) = self.start_playback(next) {
+                    eprintln!("failed to start next track in queue: {err:#}");
+                }
+            }
+            None => println!("Finished playback, no more tracks in queue"),
         }
     }
 }

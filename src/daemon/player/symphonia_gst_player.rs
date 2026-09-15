@@ -8,29 +8,27 @@ use anyhow::{Context, Result};
 
 use crate::daemon::decoder::symphonia_decoder::SymphoniaDecoder;
 use crate::daemon::player::Player;
-use crate::domain::state::{PlaybackState, PlayerState};
+use crate::domain::state::{PlaybackOutcome, PlaybackState, PlayerState};
 use crate::domain::track::Track;
 
 pub struct SymphoniaGstPlayer {
     last_start_time: Option<std::time::Instant>,
+    last_paused_pos_secs: Option<f64>,
     playback_state: Arc<Mutex<PlaybackState>>,
-    playback_pos_secs: f64,
     current_path: Option<String>,
     current_duration_secs: Option<f64>,
     current_title: Option<String>,
-    on_finished_callback: Option<Box<dyn FnMut() + Send>>,
 }
 
 impl Player for SymphoniaGstPlayer {
-    fn new(on_finished_callback: Option<Box<dyn FnMut() + Send>>) -> Self {
+    fn new() -> Self {
         Self {
             last_start_time: None,
             playback_state: Arc::new(Mutex::new(PlaybackState::Stopped)),
-            playback_pos_secs: 0.0,
             current_path: None,
             current_duration_secs: None,
+            last_paused_pos_secs: None,
             current_title: None,
-            on_finished_callback,
         }
     }
 
@@ -46,7 +44,7 @@ impl Player for SymphoniaGstPlayer {
         }
     }
 
-    fn play_from_start(&mut self, path: String) -> Result<()> {
+    fn play_from_start(&mut self, path: String) -> Result<PlaybackOutcome> {
         println!("Playing: {}", path);
 
         // The decoder only needs to live for the duration of this call; the
@@ -150,21 +148,15 @@ impl Player for SymphoniaGstPlayer {
         }
 
         // `gst-launch-1.0` only exits (successfully) once its pipeline
-        // reports EOS or an error on the bus. For a normal synced sink, EOS
-        // is only posted once the sink has finished rendering the very last
-        // buffer -- so a clean exit here means the audio actually finished
-        // *playing*, not merely that we finished decoding and handing off
-        // data. Combined with `decoded_to_completion`, this distinguishes a
-        // real end-of-track from a pause/stop that also closes the pipe.
+        // reports EOS or an error on the bus. Usually EOS
+        // is only posted once the sink has finished rendering the last
+        // buffer, i.e. track has finished playing.
         if decoded_to_completion {
             *self.playback_state.lock().expect("state mutex poisoned") = PlaybackState::Stopped;
-
-            if let Some(callback) = self.on_finished_callback.as_mut() {
-                callback();
-            }
+            Ok(PlaybackOutcome::Finished)
+        } else {
+            Ok(PlaybackOutcome::Interrupted)
         }
-
-        Ok(())
     }
 
     fn pause(&self) {

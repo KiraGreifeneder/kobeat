@@ -1,20 +1,18 @@
-use std::{
-    io::{BufRead, BufReader, Write},
-    process::{Command, Stdio},
-    sync::{Arc, Mutex},
-};
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 
-use crate::daemon::decoder::symphonia_decoder::SymphoniaDecoder;
 use crate::daemon::player::Player;
+use crate::daemon::player::symphonia_gst_play_task::SymphoniaGstPlayTask;
 use crate::domain::state::{PlaybackOutcome, PlaybackState, PlayerState};
 use crate::domain::track::Track;
 
 pub struct SymphoniaGstPlayer {
-    last_start_time: Option<std::time::Instant>,
-    last_known_pos_secs: f64,
-    playback_state: Arc<Mutex<PlaybackState>>,
+    task: Option<SymphoniaGstPlayTask>,
+    playback_state: PlaybackState,
+    /// Position the current task started from + when it started. live position can be derived from this.
+    task_start_pos_secs: f64,
+    task_started_at: Option<Instant>,
     current_path: Option<String>,
     current_duration_secs: f64,
     current_title: Option<String>,
@@ -23,11 +21,12 @@ pub struct SymphoniaGstPlayer {
 impl Player for SymphoniaGstPlayer {
     fn new() -> Self {
         Self {
-            last_start_time: None,
-            playback_state: Arc::new(Mutex::new(PlaybackState::Stopped)),
+            task: None,
+            playback_state: PlaybackState::Stopped,
+            task_start_pos_secs: 0.0,
+            task_started_at: None,
             current_path: None,
             current_duration_secs: 0.0,
-            last_known_pos_secs: 0.0,
             current_title: None,
         }
     }
@@ -35,140 +34,131 @@ impl Player for SymphoniaGstPlayer {
     fn get_state(&self) -> PlayerState {
         PlayerState {
             current_track: self.get_track(),
-            playback_state: self
-                .playback_state
-                .lock()
-                .expect("state mutex poisoned")
-                .clone(),
-            base_position_secs: 0.0,
+            playback_state: self.playback_state,
+            base_position_secs: self.position_secs(),
         }
     }
 
-    fn load_and_play(&mut self, path: String) -> Result<PlaybackOutcome> {
-        println!("Playing: {}", path);
-
-        let mut decoder =
-            SymphoniaDecoder::open(&path).context("Couldn't create Symphonia decoder.")?;
-
+    fn load_and_play(&mut self, path: String) -> Result<()> {
+        self.stop_task();
         self.current_path = Some(path);
-        self.current_duration_secs = decoder.duration_secs().unwrap_or(0.0);
-        self.current_title = decoder.title();
-
-        let channels_arg = format!("num-channels={}", decoder.channels());
-        let sample_rate_arg = format!("sample-rate={}", decoder.sample_rate());
-
-        let mut child = Command::new("gst-launch-1.0")
-            .args(&[
-                "fdsrc",
-                "fd=0",
-                "!",
-                "rawaudioparse",
-                channels_arg.as_str(),
-                sample_rate_arg.as_str(),
-                "pcm-format=s16le",
-                "!",
-                "audioconvert",
-                "!",
-                "audioresample",
-                "!",
-                "mtkbtmwrpcaudiosink",
-            ])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .context("Failed to start GStreamer")?;
-
-        let mut stdin = child.stdin.take().expect("Failed to open stdin");
-        let stdout = child.stdout.take().expect("Failed to open stdout");
-
-        // Drain gst-launch-1.0's own stdout on a background thread. This
-        // keeps its stdout pipe buffer from filling up and blocking the
-        // pipeline, and surfaces its status lines (e.g. "Got EOS from
-        // element...", "Execution ended...") for visibility/debugging.
-        let stdout_thread = std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines() {
-                match line {
-                    Ok(line) => println!("gst-launch-1.0: {line}"),
-                    Err(_) => break,
-                }
-            }
-        });
-
-        self.last_start_time = Some(std::time::Instant::now());
-        *self.playback_state.lock().expect("state mutex poisoned") = PlaybackState::Playing;
-
-        loop {
-            if decoder.done {
-                break;
-            }
-
-            {
-                let state = self.playback_state.lock().expect("state mutex poisoned");
-                if *state != PlaybackState::Playing {
-                    break;
-                }
-            }
-
-            let mut out = Vec::new();
-            decoder
-                .read_pcm_s16le(&mut out)
-                .context("Couldn't read decoded audio")?;
-
-            if out.is_empty() {
-                continue;
-            }
-
-            stdin
-                .write_all(&out)
-                .context("Broken pipe while writing PCM data to GStreamer")?;
-        }
-
-        let decoded_to_completion = decoder.done;
-
-        drop(stdin);
-        let status = child
-            .wait()
-            .context("Failed waiting for GStreamer to exit")?;
-        let _ = stdout_thread.join();
-
-        if !status.success() {
-            anyhow::bail!("GStreamer exited with status {status}");
-        }
-
-        // `gst-launch-1.0` only exits (successfully) once its pipeline
-        // reports EOS or an error on the bus. Usually EOS
-        // is only posted once the sink has finished rendering the last
-        // buffer, i.e. track has finished playing.
-        if decoded_to_completion {
-            *self.playback_state.lock().expect("state mutex poisoned") = PlaybackState::Stopped;
-            Ok(PlaybackOutcome::Finished)
-        } else {
-            Ok(PlaybackOutcome::Interrupted)
-        }
+        self.start_task(0.0)
     }
 
     fn pause(&mut self) {
-        *self.playback_state.lock().expect("state mutex poisoned") = PlaybackState::Paused;
-        let elapsed_time = self
-            .last_start_time
-            .map(|start| start.elapsed().as_secs_f64());
+        let Some(task) = &self.task else {
+            return;
+        };
 
-        self.last_known_pos_secs = self.last_known_pos_secs + elapsed_time.unwrap_or(0.0);
+        task.interrupt();
+        self.playback_state = PlaybackState::Paused;
     }
 
-    fn playback_state(&self) -> Arc<Mutex<PlaybackState>> {
-        Arc::clone(&self.playback_state)
+    fn resume(&mut self) -> Result<()> {
+        if self.playback_state == PlaybackState::Playing {
+            return Ok(());
+        }
+
+        let resume_from = self.position_secs();
+        self.stop_task();
+        self.start_task(resume_from)
+    }
+
+    fn seek(&mut self, position_secs: f64) -> Result<()> {
+        self.stop_task();
+        self.start_task(position_secs)
+    }
+
+    fn poll_finished(&mut self) -> Option<PlaybackOutcome> {
+        if !self.task.as_ref()?.is_finished() {
+            return None;
+        }
+
+        match self.take_task()? {
+            Ok(outcome) => Some(outcome),
+            Err(err) => {
+                eprintln!("Playback failed: {err:#}");
+                None
+            }
+        }
     }
 }
 
 impl SymphoniaGstPlayer {
     fn get_track(&self) -> Option<Track> {
-        let path = self.current_path.clone()?;
-
         Some(Track {
-            path,
+            path: self.current_path.clone()?,
             duration_secs: self.current_duration_secs,
             title: self.current_title.clone(),
         })
+    }
+
+    /// Live position
+    fn position_secs(&self) -> f64 {
+        match (self.playback_state, self.task_started_at) {
+            (PlaybackState::Playing, Some(started_at)) => {
+                self.task_start_pos_secs + started_at.elapsed().as_secs_f64()
+            }
+            _ => self.task_start_pos_secs,
+        }
+    }
+
+    /// Spawns a task for the current track starting at `from_secs`.
+    fn start_task(&mut self, from_secs: f64) -> Result<()> {
+        let path = self
+            .current_path
+            .clone()
+            .context("no track loaded to play")?;
+
+        let (task, info) = SymphoniaGstPlayTask::spawn(&path, from_secs)?;
+
+        self.current_duration_secs = info.duration_secs;
+        self.current_title = info.title;
+        self.task = Some(task);
+        self.task_start_pos_secs = from_secs;
+        self.task_started_at = Some(Instant::now());
+        self.playback_state = PlaybackState::Playing;
+
+        Ok(())
+    }
+
+    /// Interrupts the running task and waits for it to wind down, so the
+    /// audio device is free before another task claims it.
+    fn stop_task(&mut self) {
+        let Some(task) = &self.task else {
+            return;
+        };
+
+        task.interrupt();
+
+        if let Some(Err(err)) = self.take_task() {
+            eprintln!("Playback failed: {err:#}");
+        }
+    }
+
+    /// Joins the current task and folds its result back into our own state.
+    fn take_task(&mut self) -> Option<Result<PlaybackOutcome>> {
+        let task = self.task.take()?;
+        self.task_started_at = None;
+
+        match task.join() {
+            Ok(result) => {
+                self.task_start_pos_secs = result.position_secs;
+
+                if result.outcome == PlaybackOutcome::Finished {
+                    self.task_start_pos_secs = 0.0;
+                    self.playback_state = PlaybackState::Stopped;
+                } else if self.playback_state == PlaybackState::Playing {
+                    // Ended without anyone asking it to stop.
+                    self.playback_state = PlaybackState::Stopped;
+                }
+
+                Some(Ok(result.outcome))
+            }
+            Err(err) => {
+                self.playback_state = PlaybackState::Stopped;
+                Some(Err(err))
+            }
+        }
     }
 }

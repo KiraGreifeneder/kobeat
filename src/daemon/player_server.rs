@@ -2,45 +2,26 @@ use std::io::Write;
 use std::net::Shutdown;
 use std::os::unix::net::UnixListener;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 
 use anyhow::{Context, Result};
 
 use crate::daemon::queue::Queue;
 use crate::{
     daemon::player::{Player, symphonia_gst_player::SymphoniaGstPlayer},
-    domain::{
-        player_command::PlayerCommand,
-        state::{PlaybackOutcome, PlaybackState},
-    },
+    domain::{player_command::PlayerCommand, state::PlaybackOutcome},
 };
 
 /// Owns the daemon's command loop: binds the control socket, accepts client
 /// connections, and dispatches `PlayerCommand`s to the playback backend.
 pub struct PlayerServer {
-    playback_thread: Option<JoinHandle<Result<PlaybackOutcome>>>,
-    // Shared with the spawned playback thread so both the command loop and
-    // the actively-playing thread can reach the same player instance.
-    player: Arc<Mutex<Box<dyn Player>>>,
-    // A direct handle to the player's playback-state flag, obtained once at
-    // construction. `play_from_start` only holds `player`'s lock for the
-    // whole track, so commands that need to act *immediately* (like Pause)
-    // go through this small, separately-locked flag instead of waiting on
-    // `player`.
-    playback_state: Arc<Mutex<PlaybackState>>,
+    player: Box<dyn Player>,
     queue: Queue,
 }
 
 impl PlayerServer {
     pub fn new() -> Self {
-        let player: Box<dyn Player> = Box::new(SymphoniaGstPlayer::new());
-        let playback_state = player.playback_state();
-
         Self {
-            playback_thread: None,
-            player: Arc::new(Mutex::new(player)),
-            playback_state,
+            player: Box::new(SymphoniaGstPlayer::new()),
             queue: Queue::default(),
         }
     }
@@ -52,7 +33,7 @@ impl PlayerServer {
             .with_context(|| format!("failed to bind socket at {socket_path}"))?;
 
         loop {
-            self.reap_finished_playback();
+            self.advance_queue_if_finished();
 
             let (mut stream, _addr) = listener
                 .accept()
@@ -72,102 +53,60 @@ impl PlayerServer {
 
     fn handle_command(&mut self, cmd: PlayerCommand) -> &'static str {
         match cmd {
-            PlayerCommand::LoadAndPlay { path } => match self.start_playback(path) {
-                Ok(()) => "{\"ok\":true}\n",
-                Err(err) => {
-                    eprintln!("{err:#}");
-                    "{\"ok\":false,\"error\":\"playback already running\"}\n"
-                }
-            },
-            PlayerCommand::Resume => {
-                let path = "/mnt/onboard/audiostuff/street_circus.mp3".to_string();
-                match self.start_playback(path) {
-                    Ok(()) => "{\"ok\":true}\n",
-                    Err(err) => {
-                        eprintln!("{err:#}");
-                        "{\"ok\":false,\"error\":\"playback already running\"}\n"
-                    }
-                }
+            PlayerCommand::LoadAndPlay { path } => {
+                reply(self.player.load_and_play(path), "failed to start playback")
+            }
+            PlayerCommand::Resume => reply(self.player.resume(), "failed to resume playback"),
+            PlayerCommand::Seek { position_secs } => {
+                reply(self.player.seek(position_secs as f64), "failed to seek")
             }
             PlayerCommand::Pause => {
-                *self.playback_state.lock().expect("state mutex poisoned") = PlaybackState::Paused;
+                self.player.pause();
                 "{\"ok\":true}\n"
             }
-            other => {
-                println!("Received command: {other:?}");
+            PlayerCommand::GetPlayerState => {
+                self.player.get_state();
                 "{\"ok\":true}\n"
+            }
+            PlayerCommand::PlayNext => match self.queue.next() {
+                Some(next) => reply(
+                    self.player.load_and_play(next),
+                    "failed to start next track",
+                ),
+                None => "{\"ok\":false,\"error\":\"no next track in queue\"}\n",
+            },
+            PlayerCommand::PlayPrevious => match self.queue.previous() {
+                Some(prev) => reply(
+                    self.player.load_and_play(prev),
+                    "failed to start previous track",
+                ),
+                None => "{\"ok\":false,\"error\":\"no previous track in queue\"}\n",
+            },
+            PlayerCommand::SetQueue { paths } => {
+                self.queue.set_queue(paths);
+                "{\"ok\":true}\n"
+            }
+            PlayerCommand::Shutdown => {
+                println!("Shutting down player server");
+                std::process::exit(0);
             }
         }
     }
 
-    fn start_playback(&mut self, path: String) -> Result<()> {
-        self.reap_finished_playback();
-
-        if self
-            .playback_thread
-            .as_ref()
-            .is_some_and(|handle| !handle.is_finished())
-        {
-            anyhow::bail!("playback already running");
-        }
-
-        self.playback_thread = Some(std::thread::spawn({
-            let player = Arc::clone(&self.player);
-            move || {
-                let result = player
-                    .lock()
-                    .expect("player mutex poisoned")
-                    .load_and_play(path);
-
-                if let Err(err) = &result {
-                    eprintln!("Playback failed immediately: {err:#}");
-                }
-
-                result
-            }
-        }));
-
-        Ok(())
-    }
-
-    fn reap_finished_playback(&mut self) {
-        if !self
-            .playback_thread
-            .as_ref()
-            .is_some_and(JoinHandle::is_finished)
-        {
+    /// Moves to the next queued track once the current one plays out.
+    fn advance_queue_if_finished(&mut self) {
+        if self.player.poll_finished() != Some(PlaybackOutcome::Finished) {
             return;
         }
 
-        let handle = self
-            .playback_thread
-            .take()
-            .expect("playback thread exists when marked finished");
+        let Some(next) = self.queue.next() else {
+            println!("Finished playback, no more tracks in queue");
+            return;
+        };
 
-        match handle.join() {
-            Ok(Ok(PlaybackOutcome::Finished)) => self.advance_queue(),
-            Ok(Ok(PlaybackOutcome::Interrupted)) => {}
-            Ok(Err(err)) => eprintln!("Playback failed: {err:#}"),
-            Err(_) => eprintln!("Playback thread panicked"),
-        }
-    }
-
-    /// Starts the next queued track. Only called when the thread we just
-    /// reaped reported `PlaybackOutcome::Finished` -- i.e. the track played
-    /// all the way through on its own, as opposed to being paused or
-    /// stopped partway. That distinction comes straight from
-    /// `play_from_start`'s return value rather than being inferred from
-    /// `playback_state` afterwards, since `playback_state` can't tell "just
-    /// finished" apart from "was stopped" (both would leave it `Stopped`).
-    fn advance_queue(&mut self) {
-        match self.queue.next() {
-            Some(next) => {
-                println!("Finished playback, starting next track: {next}");
-                if let Err(err) = self.start_playback(next) {
-                    eprintln!("failed to start next track in queue: {err:#}");
-                }
-            }
-            None => println!("Finished playback, no more tracks in queue"),
+        println!("Finished playback, starting next track: {next}");
+        if let Err(err) = self.player.load_and_play(next) {
+            eprintln!("failed to start next track in queue: {err:#}");
         }
     }
 }
@@ -175,6 +114,16 @@ impl PlayerServer {
 impl Default for PlayerServer {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn reply(result: Result<()>, context: &'static str) -> &'static str {
+    match result {
+        Ok(()) => "{\"ok\":true}\n",
+        Err(err) => {
+            eprintln!("{context}: {err:#}");
+            "{\"ok\":false,\"error\":\"playback command failed\"}\n"
+        }
     }
 }
 

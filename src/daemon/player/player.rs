@@ -1,22 +1,27 @@
-use crate::domain::state::PlayerState;
-use std::sync::{Arc, Mutex};
+use anyhow::Result;
 
-use crate::domain::state::{PlaybackOutcome, PlaybackState};
+use crate::domain::state::{PlaybackOutcome, PlayerState};
 
+/// A playback backend. Implementors own whatever thread/process actually
+/// produces sound; every method here returns promptly.
 pub trait Player: Send {
     fn new() -> Self
     where
         Self: Sized;
+
     fn get_state(&self) -> PlayerState;
-    fn load_and_play(&mut self, path: String) -> Result<PlaybackOutcome, anyhow::Error>;
+
+    /// Starts `path` from the beginning, replacing anything already playing.
+    fn load_and_play(&mut self, path: String) -> Result<()>;
+
     fn pause(&mut self);
 
-    /// A cheap, cloneable handle to this player's live playback state.
-    ///
-    /// Callers (e.g. the daemon's command loop) can hold onto this and flip
-    /// it directly, without needing to lock whatever bigger mutex might be
-    /// guarding the player instance itself — which matters because
-    /// `play_from_start` blocks for the whole track and may hold such a lock
-    /// the entire time.
-    fn playback_state(&self) -> Arc<Mutex<PlaybackState>>;
+    /// Continues the current track from where it was paused.
+    fn resume(&mut self) -> Result<()>;
+
+    fn seek(&mut self, position_secs: f64) -> Result<()>;
+
+    /// Returns the outcome of the current track once it ends, exactly once.
+    /// `None` while it's still going, or if nothing is playing.
+    fn poll_finished(&mut self) -> Option<PlaybackOutcome>;
 }

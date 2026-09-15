@@ -171,6 +171,10 @@ pub fn render_page(
                     h1 { "kobeat" }
                     p { "Offline controls in the browser." }
 
+                    form method="post" action="/shutdown" {
+                        button type="submit" { "Shutdown daemon" }
+                    }
+
                     @if let Some(message) = message {
                         p class="flash" { (message) }
                     }
@@ -217,6 +221,17 @@ pub fn render_page(
                             }
                         }
                     }
+
+                    // form method="post" action="/seek" {
+                    //     input type="range" id="location" name="position_secs" min="0" max="100" value="0" onchange="this.form.submit()" {}
+                    // }
+
+
+                    form method="post" action="/seek" {
+                        input type="range" id="location" name="position_secs" min="0" max="100" value="0" {}
+                        button type="submit" { "seek" }
+                    }
+
 
                     input type="range" id="volume" name="volume" min="0" max="100" value="50" {}
                 }

@@ -18,6 +18,8 @@ An optional simple command line tool for sending commands to kobeatd.
 
 ## Compiling for Kobo Libra Color (and possibly others)
 
+You will need to install the `cross` tool to cross-compile for the Kobo's ARM architecture.
+
 ```bash
 cargo install cross --locked
 ```
@@ -25,7 +27,7 @@ cargo install cross --locked
 To build:
 
 ```bash
-cross build --bin kobeatd --bin kobeatqt --bin kobeatctl --bin kobeatui --target armv7-unknown-linux-musleabihf --release
+cross build --bin kobeatd --bin kobeatctl --bin kobeatui --target armv7-unknown-linux-musleabihf --release
 ```
 
 The first build might take a while, since it pulls a podman/docker container and compiles the Rust toolchain for the target architecture. Subsequent builds will be faster as the container is reused.

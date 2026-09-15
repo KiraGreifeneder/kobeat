@@ -20,8 +20,12 @@ struct IndexParams {
 
 #[derive(Debug, Default, Deserialize)]
 struct PlayForm {
-    /// Track to play. Absent when the transport bar's play button is used,
-    /// which resumes instead.
+    #[serde(default)]
+    path: Option<String>, // Path to the track to play. If not provided, resumes playback.
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct SeekForm {
     #[serde(default)]
     path: Option<String>,
 }
@@ -32,11 +36,13 @@ pub fn app() -> Router {
         .route("/play", post(play))
         .route("/pause", post(pause))
         .route("/status", get(status))
-    //TODO more
+        .route("/seek", post(seek))
+        .route("/shutdown", post(shutdown))
 }
 
 async fn index(Query(params): Query<IndexParams>) -> Html<String> {
-    Html(render_page(params.message.as_deref(), params.path.as_deref()).into_string())
+    Html(render_page(params.message.as_deref(), None, params.path.as_deref()).into_string());
+    status().await // TEST is this fucked
 }
 
 async fn play(Form(form): Form<PlayForm>) -> Html<String> {
@@ -56,6 +62,19 @@ async fn pause() -> Html<String> {
 
 async fn status() -> Html<String> {
     let response = send_command(PlayerCommand::GetPlayerState).await;
+    render_command_result(response).await
+}
+
+async fn seek(Form(form): Form<SeekForm>) -> Html<String> {
+    let response = send_command(PlayerCommand::Seek {
+        position_secs: form.position_secs,
+    })
+    .await;
+    render_command_result(response).await
+}
+
+async fn shutdown() -> Html<String> {
+    let response = send_command(PlayerCommand::Shutdown).await;
     render_command_result(response).await
 }
 

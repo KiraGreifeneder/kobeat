@@ -27,7 +27,7 @@ struct PlayForm {
 #[derive(Debug, Default, Deserialize)]
 struct SeekForm {
     #[serde(default)]
-    path: Option<String>,
+    position_secs: u64,
 }
 
 pub fn app() -> Router {

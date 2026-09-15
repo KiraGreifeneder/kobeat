@@ -78,7 +78,7 @@ impl PlayerServer {
                 }
             }
             PlayerCommand::Pause => {
-                SymphoniaGstPlayer {}.pause();
+                SymphoniaGstPlayer::new(None).pause();
                 "{\"ok\":true}\n"
             }
             other => {
@@ -100,7 +100,7 @@ impl PlayerServer {
         }
 
         self.playback_thread = Some(std::thread::spawn(move || {
-            let result = SymphoniaGstPlayer {}.play_from_start(path);
+            let result = SymphoniaGstPlayer::new(None).play_from_start(path);
 
             if let Err(err) = &result {
                 eprintln!("Playback failed immediately: {err:#}");

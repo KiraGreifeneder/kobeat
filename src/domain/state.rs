@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::track::Track;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum PlaybackState {
     Stopped,
     Playing,

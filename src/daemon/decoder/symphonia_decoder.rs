@@ -132,6 +132,14 @@ impl SymphoniaDecoder {
         anyhow::bail!("seek is not implemented yet")
     }
 
+    pub fn duration_secs(&self) -> Option<f64> {
+        todo!() // use probe
+    }
+
+    pub fn title(&self) -> Option<String> {
+        todo!()
+    }
+
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
     }

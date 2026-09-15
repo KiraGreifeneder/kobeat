@@ -18,8 +18,7 @@ pub struct Args {
     pub daemon: bool,
 }
 
-/// Parses CLI args and runs the daemon accordingly. This is the sole entry
-/// point the `kobeatd` binary calls from `main()`.
+/// Parses CLI args and runs the daemon accordingly.
 pub fn run() -> Result<()> {
     let args = Args::parse();
 

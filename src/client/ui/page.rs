@@ -3,6 +3,7 @@ use std::path::Path;
 use crate::{
     client::directory_snapshot::{DirectoryNode, DirectoryTree},
     config::MUSIC_DIR,
+    domain::state::{PlaybackState, PlayerState},
 };
 use maud::{DOCTYPE, Markup, html};
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
@@ -23,13 +24,13 @@ fn display_name(path: &Path) -> String {
         .unwrap_or_else(|| path.to_string_lossy().into_owned())
 }
 
-pub fn render_page(message: Option<&str>, browsing: Option<&Path>) -> Markup {
-    // A missing music directory must not panic the request handler, so an
-    // unreadable library simply renders as an empty listing.
+pub fn render_page(
+    message: Option<&str>,
+    player_state: Option<&PlayerState>,
+    browsing: Option<&Path>,
+) -> Markup {
     let tree = DirectoryTree::scan(Path::new(MUSIC_DIR), 3).ok();
 
-    // Only directories present in the scanned tree can be browsed, so an
-    // arbitrary `?path=` cannot be used to list files outside the library.
     let displayed_snapshot: Option<&DirectoryNode> = tree.as_ref().map(|tree| {
         browsing
             .and_then(|dir| tree.node(dir))
@@ -203,23 +204,17 @@ pub fn render_page(message: Option<&str>, browsing: Option<&Path>) -> Markup {
                 }
 
                 span class="controls__container" {
-                    // @if is_playing == false {
-                    //     form method="post" action="/play" {
-                    //         button type="submit" { "▶︎" }
-                    //     }
-                    // } @else {
-                    //     form method="post" action="/pause" {
-                    //         button type="submit" { "❚❚" }
-                    //     }
-                    // }
-
-                    span class="controls__button_row" {
-                        form method="post" action="/play" {
-                            button type="submit" class="control_button" { "▶︎" }
+                    @if player_state.is_some_and(|state| matches!(state.playback_state, PlaybackState::Playing)) {
+                        span class="controls__button_row" {
+                            form method="post" action="/pause" {
+                                button type="submit" class="control_button" { "❚❚" }
+                            }
                         }
-
-                        form method="post" action="/pause" {
-                            button type="submit" class="control_button" { "❚❚" }
+                    } @else {
+                        span class="controls__button_row" {
+                            form method="post" action="/play" {
+                                button type="submit" class="control_button" { "▶︎" }
+                            }
                         }
                     }
 

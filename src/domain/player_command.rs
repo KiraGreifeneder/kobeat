@@ -3,8 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Subcommand, Debug, Serialize, Deserialize)]
 pub enum PlayerCommand {
-    Play { path: String },
-    Stop,
+    LoadAndPlay { path: String },
     Pause,
     Resume,
     Seek { position_secs: u64 },

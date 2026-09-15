@@ -62,13 +62,13 @@ mod tests {
         let mut client = UnixStream::connect(&socket_path)?;
         write_command(
             &mut client,
-            &PlayerCommand::Play {
+            &PlayerCommand::LoadAndPlay {
                 path: "song.mp3".into(),
             },
         )?;
 
         match server.join().expect("server thread panicked")? {
-            PlayerCommand::Play { path } => assert_eq!(path, "song.mp3"),
+            PlayerCommand::LoadAndPlay { path } => assert_eq!(path, "song.mp3"),
             other => panic!("unexpected command: {other:?}"),
         }
 

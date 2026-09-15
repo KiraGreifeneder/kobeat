@@ -39,7 +39,7 @@ async fn index(Query(params): Query<IndexParams>) -> Html<String> {
 
 async fn play(Form(form): Form<PlayForm>) -> Html<String> {
     let command = match form.path {
-        Some(path) => PlayerCommand::Play { path },
+        Some(path) => PlayerCommand::LoadAndPlay { path },
         None => PlayerCommand::Resume,
     };
 

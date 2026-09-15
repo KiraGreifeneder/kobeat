@@ -5,13 +5,14 @@ use std::{
 
 use anyhow::{Context, Result};
 
-use crate::daemon::decoder::symphonia_decoder::SymphoniaDecoder;
+use c
+    fn resume() -> Result<()>;
+    fn resume() -> Result<()>;rate::daemon::decoder::symphonia_decoder::SymphoniaDecoder;
 use crate::daemon::player::Player;
 use crate::domain::state::{PlaybackState, PlayerState};
 
 pub struct SymphoniaGstPlayer {
     last_start_time: Option<std::time::Instant>,
-    last_pause_time: Option<std::time::Instant>,
     playback_state: PlaybackState,
     decoder: SymphoniaDecoder,
 }
@@ -21,7 +22,11 @@ impl Player for SymphoniaGstPlayer {
         !todo!()
     }
 
-    fn play(&mut self, path: String) -> Result<()> {
+    fn resume() -> Result<()> {
+        !todo!()
+    }
+
+    fn play_from_start(&mut self, path: String) -> Result<()> {
         println!("Playing: {}", path);
 
         self.decoder =

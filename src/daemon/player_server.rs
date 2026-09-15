@@ -60,7 +60,7 @@ impl PlayerServer {
 
     fn handle_command(&mut self, cmd: PlayerCommand) -> &'static str {
         match cmd {
-            PlayerCommand::Play { path } => match self.start_playback(path) {
+            PlayerCommand::LoadAndPlay { path } => match self.start_playback(path) {
                 Ok(()) => "{\"ok\":true}\n",
                 Err(err) => {
                     eprintln!("{err:#}");
@@ -100,7 +100,7 @@ impl PlayerServer {
         }
 
         self.playback_thread = Some(std::thread::spawn(move || {
-            let result = SymphoniaGstPlayer {}.play(path);
+            let result = SymphoniaGstPlayer {}.play_from_start(path);
 
             if let Err(err) = &result {
                 eprintln!("Playback failed immediately: {err:#}");

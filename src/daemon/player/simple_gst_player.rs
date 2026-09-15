@@ -12,7 +12,7 @@ impl Player for SimpleGstPlayer {
         }
     }
 
-    fn play(&mut self, path: String) -> Result<(), anyhow::Error> {
+    fn play_from_start(&mut self, path: String) -> Result<(), anyhow::Error> {
         println!("Playing: {}", path);
 
         Command::new("gst-play-1.0")

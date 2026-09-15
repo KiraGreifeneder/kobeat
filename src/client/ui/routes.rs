@@ -55,8 +55,16 @@ pub fn app() -> Router {
 }
 
 async fn index(Query(params): Query<IndexParams>) -> Html<String> {
-    Html(render_page(params.message.as_deref(), None, params.path.as_deref()).into_string());
-    status().await // TEST is this fucked
+    let response = send_command(PlayerCommand::GetPlayerState).await;
+    let state = match &response {
+        PlayerResponse::State(state) => Some(state),
+        _ => None,
+    };
+
+    Html(
+        render_page(params.message.as_deref(), state, params.path.as_deref())
+            .into_string(),
+    )
 }
 
 async fn play(Form(form): Form<PlayForm>) -> Html<String> {

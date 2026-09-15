@@ -6,7 +6,6 @@ use tokio::net::TcpListener;
 
 pub use routes::app;
 
-use crate::domain::state::PlayerState;
 
 const DEFAULT_BIND_ADDR: &str = "0.0.0.0:3000";
 

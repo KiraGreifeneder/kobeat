@@ -1,15 +1,23 @@
 use std::io::Write;
 use std::net::Shutdown;
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 
 use crate::daemon::queue::Queue;
 use crate::{
     daemon::player::{Player, symphonia_gst_player::SymphoniaGstPlayer},
-    domain::{player_command::PlayerCommand, state::PlaybackOutcome},
+    domain::{
+        player_command::{PlayerCommand, PlayerResponse},
+        state::PlaybackOutcome,
+    },
 };
+
+/// How long to wait between checks for finished playback while no client is
+/// connected.
+const POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 /// Owns the daemon's command loop: binds the control socket, accepts client
 /// connections, and dispatches `PlayerCommand`s to the playback backend.
@@ -31,60 +39,69 @@ impl PlayerServer {
         cleanup_stale_socket(socket_path)?;
         let listener = UnixListener::bind(socket_path)
             .with_context(|| format!("failed to bind socket at {socket_path}"))?;
+        listener
+            .set_nonblocking(true)
+            .context("failed to make listener non-blocking")?;
 
         loop {
             self.advance_queue_if_finished();
 
-            let (mut stream, _addr) = listener
-                .accept()
-                .context("failed to accept client connection")?;
-
-            let cmd: PlayerCommand = serde_json::from_reader(&mut stream)
-                .context("failed to parse command from client")?;
-
-            let response = self.handle_command(cmd);
-
-            stream.write_all(response.as_bytes())?;
-            stream
-                .shutdown(Shutdown::Write)
-                .context("failed to shutdown client connection")?;
+            match listener.accept() {
+                Ok((stream, _addr)) => self.serve_client(stream),
+                // No client waiting: keep looping so playback is still polled.
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(POLL_INTERVAL);
+                }
+                Err(err) => eprintln!("failed to accept client connection: {err:#}"),
+            }
         }
     }
 
-    fn handle_command(&mut self, cmd: PlayerCommand) -> &'static str {
+    /// Reads one command off `stream` and writes back the response. Errors
+    /// are logged rather than propagated so one bad client can't take the
+    /// daemon down.
+    fn serve_client(&mut self, mut stream: UnixStream) {
+        // Undo the non-blocking mode inherited from the listener, so reading
+        // the command blocks until it has actually arrived.
+        if let Err(err) = stream.set_nonblocking(false) {
+            eprintln!("failed to make client stream blocking: {err:#}");
+            return;
+        }
+
+        let response = match serde_json::from_reader(&mut stream) {
+            Ok(cmd) => self.handle_command(cmd),
+            Err(err) => PlayerResponse::Error(format!("failed to parse command: {err:#}")),
+        };
+
+        if let Err(err) = write_response(&mut stream, &response) {
+            eprintln!("failed to respond to client: {err:#}");
+        }
+    }
+
+    fn handle_command(&mut self, cmd: PlayerCommand) -> PlayerResponse {
         match cmd {
-            PlayerCommand::LoadAndPlay { path } => {
-                reply(self.player.load_and_play(path), "failed to start playback")
-            }
-            PlayerCommand::Resume => reply(self.player.resume(), "failed to resume playback"),
+            PlayerCommand::LoadAndPlay { path } => reply(self.player.load_and_play(path), "playing"),
+            PlayerCommand::Resume => reply(self.player.resume(), "resumed"),
             PlayerCommand::Seek { position_secs } => {
-                reply(self.player.seek(position_secs as f64), "failed to seek")
+                reply(self.player.seek(position_secs as f64), "seeked")
             }
             PlayerCommand::Pause => {
                 self.player.pause();
-                "{\"ok\":true}\n"
+                PlayerResponse::Ok("paused".into())
             }
-            PlayerCommand::GetPlayerState => {
-                self.player.get_state();
-                "{\"ok\":true}\n"
-            }
+            PlayerCommand::GetPlayerState => PlayerResponse::State(self.player.get_state()),
             PlayerCommand::PlayNext => match self.queue.next() {
-                Some(next) => reply(
-                    self.player.load_and_play(next),
-                    "failed to start next track",
-                ),
-                None => "{\"ok\":false,\"error\":\"no next track in queue\"}\n",
+                Some(next) => reply(self.player.load_and_play(next), "playing next"),
+                None => PlayerResponse::Error("no next track in queue".into()),
             },
             PlayerCommand::PlayPrevious => match self.queue.previous() {
-                Some(prev) => reply(
-                    self.player.load_and_play(prev),
-                    "failed to start previous track",
-                ),
-                None => "{\"ok\":false,\"error\":\"no previous track in queue\"}\n",
+                Some(prev) => reply(self.player.load_and_play(prev), "playing previous"),
+                None => PlayerResponse::Error("no previous track in queue".into()),
             },
             PlayerCommand::SetQueue { paths } => {
+                let count = paths.len();
                 self.queue.set_queue(paths);
-                "{\"ok\":true}\n"
+                PlayerResponse::Ok(format!("queued {count} tracks"))
             }
             PlayerCommand::Shutdown => {
                 println!("Shutting down player server");
@@ -117,14 +134,26 @@ impl Default for PlayerServer {
     }
 }
 
-fn reply(result: Result<()>, context: &'static str) -> &'static str {
+fn reply(result: Result<()>, ok_message: &str) -> PlayerResponse {
     match result {
-        Ok(()) => "{\"ok\":true}\n",
+        Ok(()) => PlayerResponse::Ok(ok_message.to_string()),
         Err(err) => {
-            eprintln!("{context}: {err:#}");
-            "{\"ok\":false,\"error\":\"playback command failed\"}\n"
+            eprintln!("{ok_message} failed: {err:#}");
+            PlayerResponse::Error(format!("{err:#}"))
         }
     }
+}
+
+fn write_response(stream: &mut UnixStream, response: &PlayerResponse) -> Result<()> {
+    let body = serde_json::to_vec(response).context("failed to serialize response")?;
+
+    stream.write_all(&body)?;
+    stream.write_all(b"\n")?;
+    stream
+        .shutdown(Shutdown::Write)
+        .context("failed to shutdown client connection")?;
+
+    Ok(())
 }
 
 fn cleanup_stale_socket(path: &str) -> Result<()> {

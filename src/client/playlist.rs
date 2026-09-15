@@ -1,7 +1,3 @@
-use std::{
-    fmt::format,
-    path::{Path, PathBuf},
-};
 
 use uuid::Uuid;
 

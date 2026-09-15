@@ -7,8 +7,10 @@ use symphonia::core::formats::FormatOptions;
 use symphonia::core::formats::FormatReader;
 use symphonia::core::formats::TrackType;
 use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{SeekMode, SeekTo};
 use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
+use symphonia::core::meta::{MetadataOptions, StandardTag};
+use symphonia::core::units::{Time, Timestamp};
 
 pub struct SymphoniaDecoder {
     format: Box<dyn FormatReader>,
@@ -16,6 +18,8 @@ pub struct SymphoniaDecoder {
     decoder: Box<dyn AudioDecoder>, // the decoder for the track.
     sample_rate: u32,
     channels: u16,
+    duration_secs: Option<f64>,
+    title: Option<String>,
     pub done: bool,
 }
 
@@ -61,19 +65,45 @@ impl SymphoniaDecoder {
             .make_audio_decoder(audio_params, &dec_opts)
             .context("unsupported codec")?;
 
-        return Ok(SymphoniaDecoder {
-            track_id: track.id,
+        // Read off the track before `format` gets borrowed again below.
+        let track_id = track.id;
+        let duration_secs = track.duration.and_then(|duration| {
+            let time_base = track.time_base?;
+            let time = time_base.calc_time(Timestamp::new(duration.get() as i64))?;
+            Some(time.as_secs_f64())
+        });
+
+        let mut decoder = SymphoniaDecoder {
+            track_id,
             format,
             decoder,
             sample_rate,
             channels,
+            duration_secs,
+            title: None,
             done: false,
-        });
+        };
+        decoder.title = decoder.read_title();
+
+        Ok(decoder)
     }
 
-    // to be called in a loop.
+    fn read_title(&mut self) -> Option<String> {
+        let metadata = self.format.metadata();
+        let revision = metadata.current()?;
+
+        revision.media.tags.iter().find_map(|tag| match &tag.std {
+            Some(StandardTag::TrackTitle(title)) => Some(title.to_string()),
+            _ => None,
+        })
+    }
+
+    /// Decodes the next packet into `out`. To be called in a loop.
+    /// `out` always reflects only this call: it's empty when a packet is
+    /// skipped or the track is over.
     pub fn read_pcm_s16le(&mut self, out: &mut Vec<u8>) -> Result<usize> {
-        print!("reading");
+        out.clear();
+
         // Get the next packet from the media format.
         let packet = match self.format.next_packet() {
             Ok(Some(packet)) => packet,
@@ -104,11 +134,8 @@ impl SymphoniaDecoder {
         // Decode the packet into audio samples.
         match self.decoder.decode(&packet) {
             Ok(audio_buf) => {
-                out.clear();
                 out.resize(audio_buf.samples_interleaved() * size_of::<i16>(), 0);
                 audio_buf.copy_bytes_interleaved_as::<i16, _>(out.as_mut_slice());
-
-                print!("decoding ok, append to out.");
 
                 Ok(out.len())
             }
@@ -118,7 +145,7 @@ impl SymphoniaDecoder {
             }
             Err(SymphoniaError::DecodeError(_)) => {
                 // The packet failed to decode due to invalid data, skip the packet.
-                print!("Packet failed to decode due to invalid data. Skipping.");
+                eprintln!("Packet failed to decode due to invalid data. Skipping.");
                 Ok(0)
             }
             Err(err) => {
@@ -128,16 +155,31 @@ impl SymphoniaDecoder {
         }
     }
 
-    pub fn seek(&mut self, _position_secs: f64) -> Result<()> {
-        anyhow::bail!("seek is not implemented yet")
+    pub fn seek(&mut self, position_secs: f64) -> Result<()> {
+        let time = Time::from_millis_u64((position_secs.max(0.0) * 1000.0) as u64);
+
+        self.format
+            .seek(
+                SeekMode::Accurate,
+                SeekTo::Time {
+                    time,
+                    track_id: Some(self.track_id),
+                },
+            )
+            .context("failed to seek")?;
+
+        self.decoder.reset();
+        self.done = false;
+
+        Ok(())
     }
 
     pub fn duration_secs(&self) -> Option<f64> {
-        todo!() // use probe
+        self.duration_secs
     }
 
     pub fn title(&self) -> Option<String> {
-        todo!()
+        self.title.clone()
     }
 
     pub fn sample_rate(&self) -> u32 {

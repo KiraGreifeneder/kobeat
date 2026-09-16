@@ -24,6 +24,8 @@ const BIND_TIMEOUT: Duration = Duration::from_secs(5);
 pub async fn run() -> Result<()> {
     init_logging();
 
+    ensure_loopback_up();
+
     let bind_addr =
         std::env::var("KOBEATUI_BIND").unwrap_or_else(|_| DEFAULT_BIND_ADDR.to_string());
 
@@ -72,6 +74,48 @@ fn init_logging() {
         .with_env_filter(filter)
         .with_max_level(Level::TRACE)
         .try_init();
+}
+
+fn ensure_loopback_up() {
+    let status = match run_ip(&["addr", "show", "lo"]) {
+        Ok(status) => status,
+        Err(err) => {
+            tracing::warn!(error = %err, "failed to inspect loopback interface");
+            return;
+        }
+    };
+
+    if !status.contains("inet 127.0.0.1/8") {
+        tracing::warn!("loopback interface has no 127.0.0.1 address, adding it");
+        if let Err(err) = run_ip(&["addr", "add", "127.0.0.1/8", "dev", "lo"]) {
+            tracing::warn!(error = %err, "failed to add 127.0.0.1/8 to loopback interface");
+        }
+    }
+
+    if !status.contains("LOWER_UP") {
+        tracing::warn!("loopback interface is down, bringing it up");
+        if let Err(err) = run_ip(&["link", "set", "lo", "up"]) {
+            tracing::warn!(error = %err, "failed to bring up loopback interface");
+        }
+    }
+}
+
+fn run_ip(args: &[&str]) -> Result<String> {
+    let output = std::process::Command::new("ip")
+        .args(args)
+        .output()
+        .with_context(|| format!("failed to run `ip {}`", args.join(" ")))?;
+
+    if !output.status.success() {
+        bail!(
+            "`ip {}` exited with {}: {}",
+            args.join(" "),
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 #[cfg(test)]

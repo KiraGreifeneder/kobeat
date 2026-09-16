@@ -42,6 +42,8 @@ kobeatd is the daemon that runs on the Kobo, while kobeatctl is a command-line t
 
 Place both files on your Kobo's file system.
 
+If you're using nickelmenu, add these two lines to your `nickelmenu.conf` file:
+
 ```
 # Browser menu item for exiting the browser
 menu_item :browser :Exit Browser :nickel_misc :home
@@ -49,6 +51,12 @@ menu_item :browser :Exit Browser :nickel_misc :home
 # Main menu item for launching the browser in a modal with the kobeat ui
 menu_item :main :Kobeat :nickel_browser :modal:http://127.0.0.1:3000
 
+```
+
+To save battery, you may want to close the webserver when you're not using the UI controls.
+
+```
+# todo launch and close on exit
 ```
 
 Set `kobeatd` to run automatically on startup. E.g. systemctl start
@@ -59,21 +67,18 @@ Kobo's stripped-down firmware does not bring up the `lo` (loopback)
 interface by default. Since kobeatui is served on `127.0.0.1`, a down `lo`
 means the browser (and even local tools like `curl`/`ncat` on the device)
 will simply hang/time out trying to reach it, even though kobeatui logs
-that it's listening and is completely healthy otherwise. You can confirm
-this with:
+that it's listening and is completely healthy otherwise. `kobeatui`
+handles this itself on startup — it checks `ip addr show lo` and runs
+`ip link set lo up` / `ip addr add 127.0.0.1/8 dev lo` if needed, so this
+doesn't require any manual steps or separate startup script. If you still
+run into connectivity issues, you can check the interface state yourself:
 
 ```bash
 ip addr show lo
 ```
 
 A broken interface shows no `UP,LOWER_UP` flags and no `inet 127.0.0.1/8`
-line. Use `scripts/kobeat-start.sh` (copied alongside the binaries) to
-start both daemons — it brings `lo` up first so this doesn't need to be
-done manually over SSH after every reboot:
-
-```bash
-./scripts/kobeat-start.sh
-```
+line.
 
 
 ## Local Testing

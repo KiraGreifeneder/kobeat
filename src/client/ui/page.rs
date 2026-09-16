@@ -5,7 +5,7 @@ use crate::{
     config::MUSIC_DIR,
     domain::state::{PlaybackState, PlayerState},
 };
-use maud::{DOCTYPE, Markup, html};
+use maud::{DOCTYPE, Markup, PreEscaped, html};
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 
 /// Link to the listing for `dir`. The path is percent-encoded so that spaces,
@@ -58,14 +58,11 @@ pub fn render_page(
                         body {
                             margin: 0;
                             font-family: sans-serif;
-                            background: black;
-                            color: #1f1a17;
                         }
 
                         main {
                             padding: 1.5rem;
                             padding-bottom: 6rem;
-                            color: white;
                             max-width: 100%;
                             overflow-x: hidden;
                         }
@@ -82,15 +79,22 @@ pub fn render_page(
                             bottom: 0px;
                             height: 10rem;
                             padding: 1rem;
+                            box-sizing: border-box;
                             align-items: center;
-                            gap: 1rem;
+
                         }
 
                         .controls__button_row {
                             width: 100%;
-                            display: flex;
-                            align-items: center;
-                            gap: 1rem;
+                            display: table;
+                            table-layout: fixed;
+                            margin-bottom: 1rem;
+                        }
+
+                        .controls__button_row form {
+                            display: table-cell;
+                            text-align: center;
+                            vertical-align: middle;
                         }
 
                         h1 {
@@ -103,16 +107,16 @@ pub fn render_page(
                         }
 
                         .control_button {
-                            width: 3rem;
-                            padding: 0.9rem 1rem;
+                            width: 5rem;
+                            height: 3rem;
+                            line-height: 3rem;
+                            padding: 0;
+                            margin: 0rem 1rem;
                             font-size: 1rem;
                             border: 1px solid #1f1a17;
                             border-radius: 999px;
                             background: #fff;
-                            height: 3rem;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
+                            text-align: center;
                         }
 
                         .list_item {
@@ -122,7 +126,7 @@ pub fn render_page(
                             border-bottom: 1px solid #1f1a17;
                             padding: 0.75rem 1rem;
                             cursor: pointer;
-                            background: #101010;
+                            background: #1f1a17;
                             color: white;
                             transition: background-color 0.2s;
                             text-align: left;
@@ -169,6 +173,26 @@ pub fn render_page(
                             align-items: center;
                             gap: 0.75rem;
                             margin: 0.75rem 0;
+                        }
+
+                        .progress_bar {
+                            position: relative;
+                            width: 100%;
+                            height: 2rem;
+                            background: #335224;
+                        }
+
+                        .progress_bar__fill {
+                            position: absolute;
+                            top: 0;
+                            left: 0;
+                            height: 100%;
+                            width: 0%;
+                            background: #ffffff;
+                        }
+
+                        .seek_form {
+                            width: 100%;
                         }
                     "#
                 }
@@ -226,44 +250,55 @@ pub fn render_page(
                 }
 
                 span class="controls__container" {
-                    @if player_state.is_some_and(|state| matches!(state.playback_state, PlaybackState::Playing)) {
-                        span class="controls__button_row" {
-                            form method="post" action="/previous" {
-                                button type="submit" class="control_button" { "⏮" }
-                            }
+
+                    span class="controls__button_row" {
+                        form method="post" action="/previous" {
+                            button type="submit" class="control_button" { "previous" }
+                        }
+                        @if player_state.is_some_and(|state| matches!(state.playback_state, PlaybackState::Playing)) {
                             form method="post" action="/pause" {
-                                button type="submit" class="control_button" { "❚❚" }
+                                button type="submit" class="control_button" { "pause" }
                             }
-                            form method="post" action="/next" {
-                                button type="submit" class="control_button" { "⏭" }
-                            }
-                        }
-                    } @else {
-                        span class="controls__button_row" {
-                            form method="post" action="/previous" {
-                                button type="submit" class="control_button" { "⏮" }
-                            }
+                        } @else {
                             form method="post" action="/play" {
-                                button type="submit" class="control_button" { "▶︎" }
+                                button type="submit" class="control_button" { "play" }
                             }
-                            form method="post" action="/next" {
-                                button type="submit" class="control_button" { "⏭" }
-                            }
+                        }
+                        form method="post" action="/next" {
+                            button type="submit" class="control_button" { "next" }
                         }
                     }
 
-                    // form method="post" action="/seek" {
-                    //     input type="range" id="location" name="position_secs" min="0" max="100" value="0" onchange="this.form.submit()" {}
-                    // }
 
 
-                    form method="post" action="/seek" {
-                        input type="range" id="location" name="position_secs" min="0" max="100" value="0" {}
-                        button type="submit" { "seek" }
+                    @let duration = player_state
+                        .and_then(|state| state.current_track.as_ref())
+                        .map(|track| track.duration_secs)
+                        .filter(|duration| *duration > 0.0)
+                        .unwrap_or(0.0);
+                    @let position = player_state.map(|state| state.base_position_secs).unwrap_or(0.0);
+                    @let percent = if duration > 0.0 { (position / duration * 100.0).clamp(0.0, 100.0) } else { 0.0 };
+
+                    form method="post" action="/seek" id="seek-form" class="seek_form" {
+                        input type="hidden" id="position_secs" name="position_secs" value=(format!("{position:.0}"));
+                        div class="progress_bar" id="progress-bar" data-duration=(format!("{duration:.3}")) {
+                            div class="progress_bar__fill" style=(format!("width: {percent:.3}%;")) {}
+                        }
                     }
 
-
-                    input type="range" id="volume" name="volume" min="0" max="100" value="50" {}
+                    script {
+                        (PreEscaped(r#"
+                        var bar = document.getElementById('progress-bar');
+                        var duration = parseFloat(bar.getAttribute('data-duration')) || 0;
+                        bar.addEventListener('click', function (e) {
+                            if (duration <= 0) return;
+                            var rect = bar.getBoundingClientRect();
+                            var percent = (e.clientX - rect.left) / rect.width;
+                            document.getElementById('position_secs').value = Math.round(percent * duration);
+                            document.getElementById('seek-form').submit();
+                        });
+                        "#))
+                    }
                 }
             }
         }

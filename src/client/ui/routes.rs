@@ -164,7 +164,14 @@ async fn render_command_result(response: PlayerResponse) -> Html<String> {
         PlayerResponse::Error(msg) => format!("Error: {}", msg),
     };
 
-    let state = match &response {
+    // Most commands (Seek, Play, Pause, Next, Previous, ...) return a plain
+    // Ok/Error response, not the full PlayerState. Always fetch fresh state
+    // to render with, rather than only using it when the command happened
+    // to return one — otherwise the UI (in particular the seek slider)
+    // renders as if playback were stopped at position 0 after every action
+    // except an explicit status check, even though the action succeeded.
+    let state_response = send_command(PlayerCommand::GetPlayerState).await;
+    let state = match &state_response {
         PlayerResponse::State(state) => Some(state),
         _ => None,
     };

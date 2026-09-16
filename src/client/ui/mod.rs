@@ -12,15 +12,11 @@ pub use routes::app;
 
 const DEFAULT_BIND_ADDR: &str = "0.0.0.0:3000";
 
-/// How long to wait for the initial TCP bind before giving up. A plain
-/// `TcpListener::bind` normally returns almost instantly, but if it ever
-/// hangs (e.g. some sandboxing/network quirk on device) this turns a
-/// silent, indefinite hang into a clear timeout error instead.
+/// How long to wait for the initial TCP bind before giving up.
 const BIND_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Resolves the bind address, starts the web UI, and serves it until the
-/// server stops or fails. This is the sole entry point the `kobeatui`
-/// binary calls from `main()`.
+/// server stops or fails.
 pub async fn run() -> Result<()> {
     init_logging();
 

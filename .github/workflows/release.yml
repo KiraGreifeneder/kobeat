@@ -1,11 +1,16 @@
 name: Release
 
-# Push a tag like v1.2.3 to publish a release. Running it by hand just builds
-# the package and attaches it to the workflow run.
+# The version bump workflow calls this after creating a release. A direct tag
+# push creates a release; running it by hand just uploads a workflow artifact.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -13,8 +18,12 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
 
       # Only the plugin's submodule; the others aren't needed to build.
       - name: Fetch NickelHook
@@ -37,7 +46,8 @@ jobs:
       # onto the device and ejecting.
       - name: Package
         run: |
-          version="${GITHUB_REF_NAME//\//-}"
+          version="${RELEASE_TAG:-$GITHUB_REF_NAME}"
+          version="${version//\//-}"
           echo "PACKAGE=kobeat-$version.zip" >> "$GITHUB_ENV"
           bin=target/armv7-unknown-linux-musleabihf/release
           mkdir -p pkg/.kobo pkg/.adds/kobeat
@@ -52,7 +62,13 @@ jobs:
           path: ${{ env.PACKAGE }}
 
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: inputs.tag == '' && startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" "$PACKAGE" --title "$GITHUB_REF_NAME" --generate-notes
+
+      - name: Attach package to version bump release
+        if: inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$RELEASE_TAG" "$PACKAGE"

@@ -4,3 +4,6 @@
 [submodule "koxtoolchain"]
 	path = koxtoolchain
 	url = https://github.com/koreader/koxtoolchain.git
+[submodule "nickel/NickelHook"]
+	path = src/kobeatnickel/NickelHook
+	url = https://github.com/pgaskin/NickelHook.git

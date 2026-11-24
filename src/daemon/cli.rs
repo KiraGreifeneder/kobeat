@@ -1,7 +1,10 @@
 use anyhow::Result;
 use clap::Parser;
 
-use crate::{config::SOCKET_PATH, daemon::player_server::PlayerServer};
+use crate::{
+    config::{MUSIC_DIR, SOCKET_PATH},
+    daemon::player_server::PlayerServer,
+};
 
 // use daemonize::Daemonize;
 // const PID_PATH: &str = "/tmp/kobeatd.pid";
@@ -28,6 +31,11 @@ pub fn run() -> Result<()> {
 
     if args.daemon {
         daemonize_self()?;
+    }
+
+    // Give a fresh install somewhere obvious to copy music into.
+    if let Err(err) = std::fs::create_dir_all(MUSIC_DIR) {
+        eprintln!("kobeatd: could not create {MUSIC_DIR}: {err}");
     }
 
     PlayerServer::new().run(SOCKET_PATH)

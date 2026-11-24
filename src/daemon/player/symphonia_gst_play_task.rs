@@ -11,7 +11,7 @@ use std::{
 
 use anyhow::{Context, Result};
 
-use crate::daemon::decoder::symphonia_decoder::SymphoniaDecoder;
+use crate::daemon::player::symphonia_decoder::SymphoniaDecoder;
 use crate::domain::state::PlaybackOutcome;
 
 /// Track metadata, read when the task opens the file.

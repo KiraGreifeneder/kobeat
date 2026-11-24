@@ -1,5 +1,5 @@
 pub mod client;
-pub mod directory_snapshot;
+#[path = "native-ui/mod.rs"]
+pub mod native_ui;
 pub mod playlist;
 pub mod queue;
-pub mod ui;

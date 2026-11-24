@@ -2,7 +2,7 @@ name: Bump version
 on:
   push:
     branches:
-      - main
+      - release
 permissions:
   contents: write
 jobs:
@@ -17,6 +17,7 @@ jobs:
         uses: mathieudutour/github-tag-action@v7
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          release_branches: release
       - name: Create a GitHub release
         if: steps.tag_version.outputs.new_tag != ''
         uses: ncipollo/release-action@v1

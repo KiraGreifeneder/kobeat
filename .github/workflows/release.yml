@@ -1,0 +1,58 @@
+name: Release
+
+# Push a tag like v1.2.3 to publish a release. Running it by hand just builds
+# the package and attaches it to the workflow run.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only the plugin's submodule; the others aren't needed to build.
+      - name: Fetch NickelHook
+        run: git submodule update --init --depth 1 src/kobeatnickel/NickelHook
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build kobeatd and kobeatctl
+        run: cross build --release --target armv7-unknown-linux-musleabihf --bin kobeatd --bin kobeatctl
+
+      - name: Build the Nickel plugin
+        working-directory: src/kobeatnickel
+        run: docker run --rm -v "$PWD":/src -w /src ghcr.io/pgaskin/nickeltc:1.0 sh -c 'make && make koboroot'
+
+      # Laid out like the Kobo's USB storage, so installing is unzipping it
+      # onto the device and ejecting.
+      - name: Package
+        run: |
+          version="${GITHUB_REF_NAME//\//-}"
+          echo "PACKAGE=kobeat-$version.zip" >> "$GITHUB_ENV"
+          bin=target/armv7-unknown-linux-musleabihf/release
+          mkdir -p pkg/.kobo pkg/.adds/kobeat
+          cp src/kobeatnickel/KoboRoot.tgz pkg/.kobo/
+          cp "$bin/kobeatd" "$bin/kobeatctl" pkg/.adds/kobeat/
+          (cd pkg && zip -r "../kobeat-$version.zip" .kobo .adds)
+          unzip -l "kobeat-$version.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PACKAGE }}
+          path: ${{ env.PACKAGE }}
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "$PACKAGE" --title "$GITHUB_REF_NAME" --generate-notes

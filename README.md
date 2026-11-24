@@ -1,6 +1,9 @@
 # kobeat
 Listen to music on your kobo while you're reading, or listen to audiobooks!
 
+**Just want to find out how to use it?** See the [user guide](GUIDE.md) for installing,
+adding music, using the player, and uninstalling.
+
 ## Included Binaries
 
 ### kobeatd
@@ -28,6 +31,43 @@ doesn't hook any Nickel functions. It's built for firmware 4.x (Qt 5.2.1) and
 has been checked against 4.46. If a later firmware is missing a Nickel feature
 the plugin uses, the plugin hides the matching entry instead of crashing Nickel.
 
+
+## How it works
+
+kobeat has two halves that talk over a Unix socket at `/tmp/kobeatctl.sock`:
+
+- **kobeatd** does the playing. It decodes audio with
+  [Symphonia](https://github.com/pdeljanov/Symphonia) and pipes the raw
+  samples into GStreamer, which plays them through the Kobo's Bluetooth audio
+  sink. It keeps the play queue and position, and answers JSON commands
+  (play, pause, seek, load a file, get the current state, shut down, and so
+  on) on the socket. It runs on its own, so music keeps playing while you
+  read.
+- **libkobeat.so** is the UI. Nickel loads it at startup through
+  [NickelHook](https://github.com/pgaskin/NickelHook), and the plugin then
+  adds its entries to Nickel's own widgets. It looks up the few Nickel
+  functions it needs (the native dialog and nav bar button) at runtime
+  instead of hooking them, which is why it works alongside NickelMenu and
+  Nickelite and degrades gracefully on firmware where something is missing.
+  The player polls kobeatd once a second while it's open and sends a command
+  for each tap.
+
+kobeatctl sends the same commands from a shell, which is handy for scripts
+and debugging.
+
+## Installing
+
+Download `kobeat-<version>.zip` from the
+[releases page](https://github.com/KiraGreifeneder/kobeat/releases), connect
+the Kobo over USB, unzip the archive into the root of its storage (merging the
+hidden `.kobo` and `.adds` folders), then eject. The Kobo installs the plugin
+and restarts. The archive contains:
+
+- `.kobo/KoboRoot.tgz`: the Nickel plugin.
+- `.adds/kobeat/kobeatd` and `.adds/kobeat/kobeatctl`: the daemon and CLI.
+  The player's **Start kobeatd** button runs the daemon from here.
+
+Firmware updates remove the plugin, so unzip the release again afterwards.
 
 ## Compiling for Kobo Libra Color (and possibly others)
 
@@ -95,11 +135,20 @@ The FIFO is created when Nickel starts with the plugin loaded. If the plugin
 isn't installed, `echo` just creates a regular file there, which the plugin
 replaces on its next start.
 
-To hide the built-in entries, for example when you launch the player from
-NickelMenu instead, create these empty files and restart Nickel:
+### Hiding or showing the menu entries
 
-- `.adds/kobeat/no_nav_tab` hides the bottom bar tab.
-- `.adds/kobeat/no_reader_menu` hides the reader menu item.
+Both built-in entries are on by default. To hide one, for example when you
+open the player from NickelMenu instead, create an empty file with the
+matching name in the `.adds/kobeat` folder on the Kobo's storage:
+
+| File                          | Hides                                         |
+| ----------------------------- | --------------------------------------------- |
+| `.adds/kobeat/no_nav_tab`     | the **Kobeat** tab in the home screen's bottom bar |
+| `.adds/kobeat/no_reader_menu` | the **Kobeat** item in the reader menu        |
+
+To bring an entry back, delete its file. The plugin checks these files only
+when Nickel starts, so reboot the Kobo after adding or removing one. The FIFO,
+NickelMenu and KFMon triggers keep working with both entries hidden.
 
 ### Starting and stopping kobeatd from the player
 

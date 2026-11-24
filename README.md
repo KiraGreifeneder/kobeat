@@ -4,6 +4,11 @@ Listen to music on your kobo while you're reading, or listen to audiobooks!
 **Just want to find out how to use it?** See the [user guide](GUIDE.md) for installing,
 adding music, using the player, and uninstalling.
 
+## Future work
+
+- [ ] Different user interfaces for interop with Koreader
+- [ ] More responsive player actions
+
 ## Included Binaries
 
 ### kobeatd
